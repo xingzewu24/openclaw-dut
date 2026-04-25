@@ -1,0 +1,14 @@
+{
+  "chaoxing_phone": "YOUR_CHAOXING_PHONE",
+  "chaoxing_password": "YOUR_CHAOXING_PASSWORD",
+  "chaoxing_login": "auto",
+
+  "save_dir": "~/Downloads/Chaoxing课件",
+  "calendar_name": "超星作业",
+
+  "dlut_username": "YOUR_DLUT_USERNAME",
+  "dlut_password": "YOUR_DLUT_PASSWORD",
+
+  "jxgl_username": "YOUR_JXGL_USERNAME",
+  "jxgl_password": "YOUR_JXGL_PASSWORD"
+}
