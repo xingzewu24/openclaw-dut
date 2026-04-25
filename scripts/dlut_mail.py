@@ -17,6 +17,11 @@ from email.utils import parsedate_to_datetime
 import json
 import os
 import sys
+
+# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
+        _s.reconfigure(encoding="utf-8", errors="replace")
 import argparse
 from datetime import datetime
 
@@ -39,6 +44,10 @@ CONFIG_PATH = os.path.join(_parent_dir, "config.json")
 # 兼容: 也检查 scripts/ 目录下
 if not os.path.exists(CONFIG_PATH):
     CONFIG_PATH = os.path.join(_script_dir, "config.json")
+# 兼容: 也检查 openclaw-dut 目录
+if not os.path.exists(CONFIG_PATH):
+    CONFIG_PATH = os.path.join(_script_dir, "..", "config.json")
+    CONFIG_PATH = os.path.abspath(CONFIG_PATH)
 
 
 def _load_config():

@@ -19,6 +19,12 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Cookie 持久化（会话凭证，不入 git）
+.chaoxing_cookies.json
+
+# Claude Code 本地配置
+.claude/
+
 # 日志
 *.log
 

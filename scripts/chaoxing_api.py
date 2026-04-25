@@ -7,6 +7,11 @@
 
 import os
 import sys
+
+# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
+        _s.reconfigure(encoding="utf-8", errors="replace")
 import json
 import re
 import time
@@ -41,9 +46,45 @@ CONFIG_PATHS = [
 ]
 PROFILE_ENV_VAR = "OPENCLAW_DLUT_CHAOXING_PROFILE"
 
+# Cookie 持久化路径
+_COOKIE_PATH = os.path.join(SKILL_DIR, ".chaoxing_cookies.json")
+
 # 内部缓存
 _session = None
 _course_cache = {}  # courseId(str) -> {courseId, clazzId, cpi, name, teacher}
+
+
+def _save_cookies(session):
+    """保存 cookies 到文件"""
+    try:
+        cookies = dict(session.cookies)
+        with open(_COOKIE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(cookies, f)
+    except Exception as e:
+        print(f"⚠️  保存 Cookie 失败: {e}")
+
+
+def _load_cookies(session):
+    """从文件加载 cookies"""
+    try:
+        if os.path.exists(_COOKIE_PATH):
+            with open(_COOKIE_PATH, 'r', encoding='utf-8') as f:
+                cookies = json.load(f)
+            for k, v in cookies.items():
+                session.cookies.set(k, v)
+            return True
+    except Exception as e:
+        print(f"⚠️  加载 Cookie 失败: {e}")
+    return False
+
+
+def _delete_cookies():
+    """删除持久化的 cookie 文件"""
+    try:
+        if os.path.exists(_COOKIE_PATH):
+            os.remove(_COOKIE_PATH)
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════
@@ -104,10 +145,64 @@ def _login_by_phone(s, phone, password):
     return r.json()
 
 
-def _login_by_qrcode(s):
-    """扫码登录 → 下载服务端二维码图片，终端显示或保存文件，等待手机超星 App 扫码"""
-    import io
+def _print_qr_ascii(qr_bytes):
+    """终端 ASCII 渲染二维码，弹窗失败时的降级方案。返回是否成功。"""
+    try:
+        import io
+        from PIL import Image
+        from pyzbar.pyzbar import decode as _pz_decode
+        import qrcode
+        img = Image.open(io.BytesIO(qr_bytes))
+        decoded = _pz_decode(img)
+        if not decoded:
+            return False
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(decoded[0].data.decode())
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+        print()
+        return True
+    except Exception:
+        return False
 
+
+def _show_qr_popup(qr_bytes):
+    """Tkinter 弹窗显示二维码。返回 (root, status_var)，失败返回 (None, None)。"""
+    try:
+        import io
+        import tkinter as tk
+        from PIL import Image, ImageTk
+        root = tk.Tk()
+        root.title("超星学习通扫码登录")
+        root.attributes("-topmost", True)
+        root.resizable(False, False)
+
+        img = Image.open(io.BytesIO(qr_bytes))
+        img = img.resize((280, 280), getattr(Image, "Resampling", Image).LANCZOS)
+        photo = ImageTk.PhotoImage(img)
+
+        tk.Label(root, text="请用「超星学习通」App 扫码登录",
+                 font=("", 13), pady=12).pack()
+        img_label = tk.Label(root, image=photo, padx=20)
+        img_label.image = photo  # 防 GC
+        img_label.pack()
+
+        status_var = tk.StringVar(value="等待扫码...")
+        tk.Label(root, textvariable=status_var,
+                 font=("", 10), fg="#666", pady=12).pack()
+
+        root.update_idletasks()
+        w, h = root.winfo_width(), root.winfo_height()
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"+{(sw - w) // 2}+{(sh - h) // 3}")
+        root.update()
+        return root, status_var
+    except Exception:
+        return None, None
+
+
+def _login_by_qrcode(s):
+    """扫码登录 → 弹窗显示二维码（GUI 不可用时降级为终端 ASCII / 临时文件），等待手机超星 App 扫码"""
     # 1. 获取 uuid 和 enc
     r = s.get(f"{_PASSPORT}/login", params={"fid": "-1"}, timeout=15)
     uuid = _re_first(r.text, r'uuid"\s*value\s*=\s*"([^"]+)"')
@@ -126,60 +221,82 @@ def _login_by_qrcode(s):
     qr_resp = s.get(qr_url, timeout=10)
     qr_bytes = qr_resp.content
 
-    # 3. 解码二维码图片，提取数据后在终端重新渲染
-    print("\n请用「超星学习通」App 扫描二维码登录：\n")
+    # 3. 优先弹窗显示，失败降级 ASCII 终端，再失败兜底保存文件并自动打开
+    print("\n请用「超星学习通」App 扫描二维码登录\n")
+    popup, status_var = _show_qr_popup(qr_bytes)
+    if popup is None:
+        if not _print_qr_ascii(qr_bytes):
+            import tempfile
+            tmp = os.path.join(tempfile.gettempdir(), "chaoxing_qr.jpg")
+            with open(tmp, "wb") as f:
+                f.write(qr_bytes)
+            print(f"  二维码已保存到: {tmp}")
+            try:
+                if sys.platform == "win32":
+                    os.startfile(tmp)
+                elif sys.platform == "darwin":
+                    import subprocess as _sp
+                    _sp.Popen(["open", tmp])
+                else:
+                    import subprocess as _sp
+                    _sp.Popen(["xdg-open", tmp])
+            except Exception:
+                print("  请用超星 App 扫描该图片，或在浏览器中打开查看\n")
+
+    # 4. 轮询扫码状态（GET 方式，兼容性更好）
+    success = False
+    debug_once = True
+    poll_url = f"{_PASSPORT}/getauthstatus"
     try:
-        from PIL import Image
-        img = Image.open(io.BytesIO(qr_bytes))
-        try:
-            from pyzbar.pyzbar import decode as _pz_decode
-            decoded = _pz_decode(img)
-            if decoded:
-                qr_data = decoded[0].data.decode()
-                import qrcode
-                qr = qrcode.QRCode(border=1)
-                qr.add_data(qr_data)
-                qr.make(fit=True)
-                qr.print_ascii(invert=True)
-                print()
+        for i in range(60):
+            r = s.get(poll_url, params={
+                "uuid": uuid,
+                "enc": enc or "",
+            }, headers={"Referer": f"{_PASSPORT}/login?fid=-1"}, timeout=10)
+            try:
+                data = r.json()
+            except Exception:
+                data = {}
+
+            if debug_once:
+                print(f"\n[调试] uuid={uuid[:30] if uuid else '(空)'}...")
+                print(f"[调试] enc={enc[:30] if enc else '(空)'}...")
+                print(f"[调试] 状态码={r.status_code}, 响应: {r.text[:300]}")
+                debug_once = False
+
+            status = data.get("status", -1)
+            # status: 1=成功, 2=已扫码待确认, 其他=等待中
+            if status == 1:
+                print("\n✅ 扫码登录成功！")
+                _save_cookies(s)
+                success = True
+                break
+            elif status == 2:
+                msg = "已扫码，请在手机上确认..."
             else:
-                raise Exception("pyzbar decode returned empty")
-        except ImportError:
-            raise Exception("pyzbar not installed")
-    except Exception:
-        # 解码失败，直接保存图片让用户扫
-        import tempfile
-        tmp = os.path.join(tempfile.gettempdir(), "chaoxing_qr.jpg")
-        with open(tmp, "wb") as f:
-            f.write(qr_bytes)
-        print(f"  二维码已保存到: {tmp}")
-        print(f"  请用超星 App 扫描该图片，或在浏览器中打开查看\n")
+                remaining = 60 - i
+                msg = f"等待扫码... ({remaining}s)"
 
-    # 4. 轮询扫码状态
-    for i in range(60):
-        r = s.post(f"{_PASSPORT}/getauthstatus", data={
-            "enc": enc,
-            "uuid": uuid,
-        }, timeout=10)
-        try:
-            data = r.json()
-        except Exception:
-            data = {}
+            print(f"\r⏳ {msg}", end="", flush=True)
 
-        status = data.get("status", -1)
-        if status == 1:
-            print("✅ 扫码登录成功！")
-            return True
-        elif status == 0:
-            print(f"\r⏳ 等待扫码... ({60 - i}s)", end="", flush=True)
-        elif status == 2:
-            print("\r⏳ 已扫码，请在手机上确认...", end="", flush=True)
+            if popup is not None:
+                try:
+                    status_var.set(msg)
+                    popup.update()
+                except Exception:
+                    popup = None  # 窗口被用户关闭
+
+            time.sleep(1.5)
         else:
-            print(f"\r⏳ 等待扫码... ({60 - i}s)", end="", flush=True)
-        time.sleep(1)
+            print("\n❌ 扫码超时")
+    finally:
+        if popup is not None:
+            try:
+                popup.destroy()
+            except Exception:
+                pass
 
-    print("\n❌ 扫码超时")
-    return False
+    return success
 
 
 def _get_session(profile_name=None):
@@ -194,12 +311,29 @@ def _get_session(profile_name=None):
 
     s = _new_session()
 
+    # 尝试加载已保存的 Cookie（用 passport2 自身接口验证，避免 SSO 跳转误判）
+    if _load_cookies(s):
+        try:
+            r = s.get(f"{_PASSPORT}/mooc/accountManage", timeout=10, allow_redirects=True)
+            # 如果被重定向到 login 页面，说明 cookie 已过期
+            if "login" not in r.url.lower() and r.status_code == 200:
+                print("✅ 使用已保存的 Cookie 登录成功")
+                _session = s
+                return s
+            print("⏳ 已保存的 Cookie 已过期，重新登录...")
+        except Exception:
+            pass
+        # Cookie 无效，清除文件并创建新会话
+        _delete_cookies()
+        s = _new_session()
+
     # 方式 1: 手机号+密码（如果配置了）
     if phone and password and login_method in ("auto", "phone"):
         try:
             data = _login_by_phone(s, phone, password)
             if data.get("status"):
                 print(f"✅ 超星登录成功")
+                _save_cookies(s)
                 _session = s
                 return s
             msg = data.get("msg2", "")
@@ -216,6 +350,7 @@ def _get_session(profile_name=None):
     # 方式 2: 扫码登录
     if login_method in ("auto", "qrcode"):
         if _login_by_qrcode(s):
+            _save_cookies(s)
             _session = s
             return s
         if login_method == "qrcode":
@@ -365,8 +500,9 @@ def list_courses(profile_name=None):
         headers={"Referer": referer},
     )
 
-    # Cookie 过期 → 重新登录
+    # Cookie 过期 → 删除文件并重新登录
     if "passport2.chaoxing.com" in r.text or r.status_code == 302:
+        _delete_cookies()
         _invalidate_session()
         s = _get_session(profile_name)
         r = s.post(

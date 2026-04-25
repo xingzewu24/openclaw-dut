@@ -3,6 +3,11 @@
 
 import os
 import sys
+
+# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
+        _s.reconfigure(encoding="utf-8", errors="replace")
 import subprocess
 import platform
 import json
