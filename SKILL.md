@@ -291,8 +291,8 @@ python scripts/grading_assistant.py grade <course_id> <assignment_id> <user_id> 
 ## 依赖
 
 ```bash
-pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome
-# Windows: pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome
+pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
+# Windows: pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
 ```
 
 ## 注意事项

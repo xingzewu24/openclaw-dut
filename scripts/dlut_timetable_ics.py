@@ -27,19 +27,6 @@ from chaoxing_api import (
 
 DEFAULT_OUTPUT = os.path.expanduser("~/Downloads/dlut_timetable.ics")
 
-# ── 假期配置（无法从教务系统获取，需按学年更新） ──
-SEMESTER_HOLIDAYS = {
-    "2025-2026-1": [
-        {"name": "国庆节", "start": date(2025, 10, 1), "end": date(2025, 10, 7)},
-        {"name": "元旦", "start": date(2026, 1, 1), "end": date(2026, 1, 1)},
-    ],
-    "2025-2026-2": [
-        {"name": "清明节", "start": date(2026, 4, 4), "end": date(2026, 4, 6)},
-        {"name": "劳动节", "start": date(2026, 5, 1), "end": date(2026, 5, 5)},
-        {"name": "端午节", "start": date(2026, 6, 19), "end": date(2026, 6, 21)},
-    ],
-}
-
 # Fallback 学期数据（教务系统不可用时使用，需按学年更新）
 _FALLBACK_SEMESTERS = {
     "2025-2026-2": {
@@ -47,8 +34,8 @@ _FALLBACK_SEMESTERS = {
         "name": "2025-2026学年第二学期",
         "start": date(2026, 3, 2),
         "end": date(2026, 6, 28),
-        "teaching_weeks": 17,
-        "exam_weeks": 0,
+        "teaching_weeks": 16,
+        "exam_weeks": 1,
     },
 }
 
@@ -68,14 +55,15 @@ def _get_semesters_from_jxgl():
         for sem in semesters:
             start = date.fromisoformat(sem["startDate"])
             end = date.fromisoformat(sem["endDate"])
-            teaching_weeks = (end - start).days // 7 + 1
+            total_weeks = (end - start).days // 7 + 1
+            # 学校规则：每学期最后一周是考试周
             result[sem["code"]] = {
                 "key": sem["code"],
                 "name": sem["nameZh"],
                 "start": start,
                 "end": end,
-                "teaching_weeks": teaching_weeks,
-                "exam_weeks": 0,
+                "teaching_weeks": total_weeks - 1,
+                "exam_weeks": 1,
             }
         return result
     except (SystemExit, Exception):

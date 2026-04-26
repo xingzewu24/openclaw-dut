@@ -5,7 +5,7 @@
 
 学期起止、总周数等数据优先从教务系统 jxgl.dlut.edu.cn 动态获取。
 教务系统不可用时回退到硬编码 fallback 数据。
-放假日期为硬编码，需按学年更新。
+放假日期通过 chinese-calendar 库动态获取。
 """
 
 import os
@@ -15,20 +15,12 @@ import sys
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
         _s.reconfigure(encoding="utf-8", errors="replace")
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 
 # ============================================================
 # 硬编码数据
 # ============================================================
-
-# 放假及关键事件（无法从教务系统获取，需按学年更新）
-HOLIDAYS = [
-    {"date": "2026-04-04", "event": "清明节放假 (4/4-4/6)"},
-    {"date": "2026-05-01", "event": "劳动节放假 (5/1-5/5)"},
-    {"date": "2026-06-19", "event": "端午节放假 (6/19-6/21)"},
-    {"date": "2026-06-22", "event": "期末考试开始 (约第16-17周)"},
-]
 
 # Fallback 学期数据（教务系统不可用时使用，需按学年更新）
 FALLBACK_SEMESTER = {
@@ -87,18 +79,89 @@ def _get_semester_from_jxgl():
         return None
 
 
+def get_holidays_in_range(start_date, end_date):
+    """获取指定日期范围内的中国法定节假日区间（含调休连休）
+
+    Returns:
+        list[dict]: [{"name": "清明节", "start": date, "end": date}, ...]
+    """
+    from chinese_calendar import get_holiday_detail
+
+    NAME_MAP = {
+        "New Year's Day": "元旦",
+        "Spring Festival": "春节",
+        "Tomb-sweeping Day": "清明节",
+        "Labour Day": "劳动节",
+        "Dragon Boat Festival": "端午节",
+        "Mid-Autumn Festival": "中秋节",
+        "National Day": "国庆节",
+    }
+
+    holiday_dates = []
+    for n in range((end_date - start_date).days + 1):
+        d = start_date + timedelta(days=n)
+        is_hol, name = get_holiday_detail(d)
+        if is_hol and name:
+            holiday_dates.append((d, name))
+
+    if not holiday_dates:
+        return []
+
+    intervals = []
+    cur_start = holiday_dates[0][0]
+    cur_end = holiday_dates[0][0]
+    cur_name = holiday_dates[0][1]
+
+    for d, name in holiday_dates[1:]:
+        if d == cur_end + timedelta(days=1) and name == cur_name:
+            cur_end = d
+        else:
+            intervals.append({
+                "name": NAME_MAP.get(cur_name, cur_name),
+                "start": cur_start,
+                "end": cur_end,
+            })
+            cur_start = d
+            cur_end = d
+            cur_name = name
+
+    intervals.append({
+        "name": NAME_MAP.get(cur_name, cur_name),
+        "start": cur_start,
+        "end": cur_end,
+    })
+    return intervals
+
+
+def _format_key_dates(start, end, total_weeks):
+    """根据学期起止生成 key_dates 列表（假期 + 学期结束）"""
+    key_dates = []
+    holidays = get_holidays_in_range(start, end)
+    for h in holidays:
+        s_str = h["start"].strftime("%m/%d")
+        e_str = h["end"].strftime("%m/%d")
+        key_dates.append({
+            "date": h["start"].isoformat(),
+            "event": f"{h['name']}放假 ({s_str}-{e_str})",
+        })
+    key_dates.append({"date": end.isoformat(), "event": "学期结束"})
+    return key_dates
+
+
 def get_academic_calendar():
     """获取当前学期校历（学期数据优先来自教务系统）"""
     jxgl = _get_semester_from_jxgl()
 
     if jxgl:
+        start = date.fromisoformat(jxgl["start_date"])
+        end = date.fromisoformat(jxgl["end_date"])
         return {
             "semester": jxgl["name"],
             "start_date": jxgl["start_date"],
             "end_date": jxgl["end_date"],
             "total_weeks": jxgl["total_weeks"],
-            "key_dates": HOLIDAYS,
-            "source": "学期数据来自教务系统 jxgl.dlut.edu.cn，放假日期为硬编码",
+            "key_dates": _format_key_dates(start, end, jxgl["total_weeks"]),
+            "source": "学期数据来自教务系统 jxgl.dlut.edu.cn，放假日期来自 chinese-calendar 库",
         }
 
     # fallback
@@ -111,7 +174,7 @@ def get_academic_calendar():
         "start_date": fb["start_date"],
         "end_date": fb["end_date"],
         "total_weeks": total_weeks,
-        "key_dates": HOLIDAYS,
+        "key_dates": _format_key_dates(start, end, total_weeks),
         "source": "硬编码 fallback 数据 (教务系统不可用)",
     }
 
@@ -158,17 +221,21 @@ def get_current_week():
         }.get(today.strftime("%A"), today.strftime("%A"))
 
         upcoming = []
-        for item in HOLIDAYS:
-            event_date = date.fromisoformat(item["date"])
+        holidays = get_holidays_in_range(start, end)
+        for h in holidays:
+            event_date = h["start"]
             diff = (event_date - today).days
             if -1 <= diff <= 14:
-                upcoming.append(f"{item['event']} ({item['date']})")
+                s_str = h["start"].strftime("%m/%d")
+                e_str = h["end"].strftime("%m/%d")
+                upcoming.append(f"{h['name']}放假 ({s_str}-{e_str}) ({h['start'].isoformat()})")
 
+        week_type = "考试周" if week == total_weeks else "教学周"
         return {
             "week": week,
             "day": f"{today.strftime('%Y-%m-%d')} {weekday_cn}",
             "semester": name,
-            "status": f"第 {week} 教学周 {weekday_cn}",
+            "status": f"第 {week} {week_type} {weekday_cn}",
             "upcoming": upcoming if upcoming else None,
         }
 

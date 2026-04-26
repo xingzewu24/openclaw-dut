@@ -72,7 +72,7 @@ git clone https://github.com/xingzewu24/openclaw-dut.git \
   ~/.openclaw/workspace/skills/openclaw-dut
 
 # 安装 Python 依赖
-pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome
+pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
 ```
 
 ### 2️⃣ 配置
