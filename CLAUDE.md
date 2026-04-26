@@ -61,7 +61,9 @@
 
 | 用户意图 | 命令 |
 |---------|------|
-| 查课表 | `python scripts/dlut_jxgl.py courses` |
+| 查本学期课表 | `python scripts/dlut_jxgl.py courses` |
+| 查本周课表 | `python scripts/dlut_jxgl.py courses-week` |
+| 查下周课表 | `python scripts/dlut_jxgl.py courses-next-week` |
 | 查今天有哪些课 | `python scripts/dlut_jxgl.py courses-today` |
 | 查明天有哪些课 | `python scripts/dlut_jxgl.py courses-tomorrow` |
 | 查考试安排 | `python scripts/dlut_jxgl.py exams` |

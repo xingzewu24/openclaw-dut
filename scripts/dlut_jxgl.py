@@ -412,11 +412,6 @@ def get_courses(session, filter_weekday=None, filter_week=None, semester_id=None
     r.raise_for_status()
     data = r.json()
 
-    # 自动计算当前教学周
-    current_sem = next((s for s in semesters if s["id"] == semester_id), None)
-    if filter_week is None and current_sem:
-        filter_week = _get_current_teaching_week(current_sem)
-
     results = []
 
     # ── 1) 从 lessons 读取 ──
@@ -743,7 +738,9 @@ def main():
     parser = argparse.ArgumentParser(description="大连理工大学教务系统")
     sub = parser.add_subparsers(dest="cmd")
 
-    sub.add_parser("courses", help="查询课表")
+    sub.add_parser("courses", help="查询本学期全部课表")
+    sub.add_parser("courses-week", help="查询本周课表")
+    sub.add_parser("courses-next-week", help="查询下周课表")
     sub.add_parser("courses-today", help="查询今天有哪些课")
     sub.add_parser("courses-tomorrow", help="查询明天有哪些课")
     sub.add_parser("exams", help="查询考试安排")
@@ -785,6 +782,47 @@ def main():
             print("未查询到课程")
             return
         # 按 (课程名, 班级名, 教师) 聚合，同一门课的不同 schedule 合并展示
+        from collections import OrderedDict
+        grouped = OrderedDict()
+        for c in courses:
+            key = (c["course_name"], c["class_name"], c["teacher"])
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(c)
+
+        for i, ((course_name, class_name, teacher), schedules) in enumerate(grouped.items(), 1):
+            display_name = course_name if course_name else class_name
+            print(f"{i}. {display_name}")
+            if class_name and course_name:
+                print(f"   班级: {class_name}")
+            if teacher:
+                print(f"   教师: {teacher}")
+            for sch in schedules:
+                unit_str = f" 第{sch['start_unit']}~{sch['end_unit']}节" if sch.get("start_unit") else ""
+                print(f"   {sch['weeks']} {sch['weekday']}{unit_str}")
+                if sch.get("location"):
+                    print(f"      地点: {sch['location']}")
+            print()
+
+    elif args.cmd in ("courses-week", "courses-next-week"):
+        semesters, semester_id = _get_semester_info(s)
+        current_sem = next((sem for sem in semesters if sem["id"] == semester_id), None)
+        target_week = None
+        if current_sem:
+            target_week = _get_current_teaching_week(current_sem)
+            if args.cmd == "courses-next-week":
+                target_week += 1
+
+        courses = get_courses(s, filter_week=target_week, semester_id=semester_id, semesters=semesters)
+
+        label = "本周" if args.cmd == "courses-week" else "下周"
+        week_info = f" 第{target_week}周" if target_week else ""
+        print(f"📅 {label}课表（{week_info.strip()}）\n")
+
+        if not courses:
+            print("🎉 没有课程！")
+            return
+
         from collections import OrderedDict
         grouped = OrderedDict()
         for c in courses:

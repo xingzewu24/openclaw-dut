@@ -18,7 +18,7 @@ description: |
   (11) 查教务系统课表、考试安排、期末成绩
   (12) 手写PDF生成
   (13) 课件内容提取
-  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取
+  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 本周课表, 下周课表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取
 ---
 
 # 大连理工大学全能校园助手
@@ -93,7 +93,9 @@ python scripts/dlut_news.py all          # 全部获取
 
 ```bash
 python scripts/dlut_jxgl.py login            # 测试教务登录
-python scripts/dlut_jxgl.py courses          # 查当前学期完整课表
+python scripts/dlut_jxgl.py courses          # 查本学期完整课表
+python scripts/dlut_jxgl.py courses-week     # 查本周课表
+python scripts/dlut_jxgl.py courses-next-week # 查下周课表
 python scripts/dlut_jxgl.py courses-today    # 查今天有哪些课
 python scripts/dlut_jxgl.py courses-tomorrow # 查明天有哪些课
 python scripts/dlut_jxgl.py exams            # 查考试安排
