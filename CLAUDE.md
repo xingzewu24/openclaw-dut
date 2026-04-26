@@ -62,6 +62,8 @@
 | 用户意图 | 命令 |
 |---------|------|
 | 查课表 | `python scripts/dlut_jxgl.py courses` |
+| 查今天有哪些课 | `python scripts/dlut_jxgl.py courses-today` |
+| 查明天有哪些课 | `python scripts/dlut_jxgl.py courses-tomorrow` |
 | 查考试安排 | `python scripts/dlut_jxgl.py exams` |
 | 查期末成绩 | `python scripts/dlut_jxgl.py grades` |
 | 导出考试为 ICS | `python scripts/dlut_jxgl.py exams-ics` |

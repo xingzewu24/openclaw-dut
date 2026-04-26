@@ -28,7 +28,7 @@ description: |
 - 配置文件: `config.json`（从 `config.example.json` 复制并填入凭证）
 - 首次使用运行 `python scripts/setup.py` 进入交互式配置向导
 - 超星学习通: `https://dut.fanya.chaoxing.com`
-- 当前用户的课程列表通过超星 API 自动获取
+- 课表/课程查询以教务系统为准（`dlut_jxgl.py`），超星仅用于作业/课件管理
 - 所有脚本位于 `scripts/` 目录，用 `python` 执行。macOS/Linux 若未配置 python 别名可改用 `python3`
 - PPT 模板位于 `templates/`
 - 手写字体位于 `fonts/`（12 款中文字体）
@@ -89,15 +89,17 @@ python scripts/dlut_news.py all          # 全部获取
 
 ### 5. 教务系统（课表/考试/成绩）
 
-**触发**: "课表"、"考试安排"、"期末成绩"、"绩点"、"GPA"
+**触发**: "课表"、"课程表"、"查课程"、"今天/明天有什么课"、"考试安排"、"期末成绩"、"绩点"、"GPA"
 
 ```bash
-python scripts/dlut_jxgl.py login       # 测试教务登录
-python scripts/dlut_jxgl.py courses     # 查当前学期课表
-python scripts/dlut_jxgl.py exams       # 查考试安排
-python scripts/dlut_jxgl.py grades      # 查所有学期成绩
-python scripts/dlut_jxgl.py exams-ics   # 导出考试为 ICS
-python scripts/dlut_jxgl.py exams-sync  # 考试同步到日历
+python scripts/dlut_jxgl.py login            # 测试教务登录
+python scripts/dlut_jxgl.py courses          # 查当前学期完整课表
+python scripts/dlut_jxgl.py courses-today    # 查今天有哪些课
+python scripts/dlut_jxgl.py courses-tomorrow # 查明天有哪些课
+python scripts/dlut_jxgl.py exams            # 查考试安排
+python scripts/dlut_jxgl.py grades           # 查所有学期成绩
+python scripts/dlut_jxgl.py exams-ics        # 导出考试为 ICS
+python scripts/dlut_jxgl.py exams-sync       # 考试同步到日历
 ```
 
 凭证从 `config.json` 自动读取（jxgl_username + jxgl_password）。通过 CAS SSO 登录 `jxgl.dlut.edu.cn`，首次使用运行 `python scripts/setup.py` 配置。
@@ -237,10 +239,12 @@ python scripts/dlut_visual.py search "图书馆"
 
 ## 超星学习通高级功能
 
-### 课程 & 课件
+### 课程 & 课件（超星学习通）
+
+> 以下命令用于超星学习通的作业/课件管理。查课表请以教务系统 `dlut_jxgl.py courses` 为准。
 
 ```bash
-python scripts/chaoxing_api.py courses                  # 列出课程
+python scripts/chaoxing_api.py courses                  # 列出超星课程（用于作业/课件）
 python scripts/chaoxing_api.py files <course_id>        # 查看课程文件
 python scripts/chaoxing_api.py files <course_id> 搜索词  # 搜索课程文件
 python scripts/chaoxing_api.py grades                   # 查成绩

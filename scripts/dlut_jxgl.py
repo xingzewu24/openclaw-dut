@@ -219,15 +219,21 @@ def _get_student_id(session):
 def _get_semester_info(session):
     """从课表页面提取学期列表和当前学期 ID"""
     r = session.get(f"{JXGL_BASE}/student/for-std/course-table", timeout=15)
-    # 提取 semesters JSON（JS 中用单引号包裹，含 unicode 转义）
-    m = re.search(r"var semesters\s*=\s*JSON\.parse\(\s*'(.+?)'\s*\);", r.text)
+    # 提取 semesters JSON（JS 中用单/双引号包裹，含 unicode 转义）
+    m = re.search(r"var semesters\s*=\s*JSON\.parse\(\s*['\"](.+?)['\"]\s*\);", r.text)
     if not m:
         raise RuntimeError("无法解析学期列表")
     raw = m.group(1).encode("utf-8").decode("unicode_escape")
     semesters = json.loads(raw)
-    # 提取当前学期 id — 根据 today 落在哪个学期的 startDate~endDate 区间
+    if not semesters:
+        raise RuntimeError("学期列表为空")
+
+    # 按 startDate 倒序排列，最新的学期在前
+    semesters = sorted(semesters, key=lambda x: x.get("startDate", ""), reverse=True)
+
+    # 提取当前学期 id — 优先根据 today 落在哪个学期的 startDate~endDate 区间
     now = datetime.now(TZ_SHANGHAI)
-    current_id = semesters[0]["id"]
+    current_id = semesters[0]["id"]  # 默认最新的学期
     for sem in semesters:
         sd = datetime.strptime(sem["startDate"], "%Y-%m-%d").replace(tzinfo=TZ_SHANGHAI)
         ed = datetime.strptime(sem["endDate"], "%Y-%m-%d").replace(tzinfo=TZ_SHANGHAI)
@@ -238,15 +244,166 @@ def _get_semester_info(session):
 
 
 # ═══════════════════════════════════════════
+# 课表解析辅助
+# ═══════════════════════════════════════════
+
+def _parse_schedule_lines(dt_text, dtp_text):
+    """从 dateTimeText / dateTimePlaceText 解析出每条 schedule 记录。
+
+    Returns:
+        list[dict]: [{weeks, weekday, start_unit, end_unit, location}, ...]
+    """
+    if not dt_text:
+        return []
+
+    # 标准化分隔符
+    time_lines = []
+    for part in re.split(r";\s*\n|\n|;", dt_text):
+        part = part.strip().strip(";").strip()
+        if part:
+            time_lines.append(part)
+
+    loc_lines = []
+    if dtp_text:
+        for part in re.split(r";\s*\n|\n|;", dtp_text):
+            part = part.strip().strip(";").strip()
+            if part:
+                loc_lines.append(part)
+
+    schedules = []
+    for i, tl in enumerate(time_lines):
+        # 周次
+        wm = re.match(r"^([\d~,\(\)单双]+周)\s+", tl)
+        weeks = wm.group(1) if wm else ""
+        rest = tl[len(weeks):].strip() if weeks else tl
+
+        # 星期几
+        wd_m = re.search(r"周[一二三四五六日]", rest)
+        weekday = wd_m.group(0) if wd_m else ""
+        if wd_m:
+            rest = rest.replace(weekday, "", 1).strip()
+
+        # 节次（支持中文数字和阿拉伯数字）
+        _cn_num = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
+                   "六": "6", "七": "7", "八": "8", "九": "9", "十": "10", "十一": "11", "十二": "12"}
+        um = re.search(r"第([\d一二三四五六七八九十]+)节~第?([\d一二三四五六七八九十]+)节", rest)
+        if um:
+            start_unit = _cn_num.get(um.group(1), um.group(1))
+            end_unit = _cn_num.get(um.group(2), um.group(2))
+        else:
+            um2 = re.search(r"第(\d+)~(\d+)节", rest)
+            start_unit = um2.group(1) if um2 else ""
+            end_unit = um2.group(2) if um2 else ""
+
+        # 地点
+        location = ""
+        if len(loc_lines) == 1:
+            loc_line = loc_lines[0]
+            loc = loc_line.replace(tl, "").strip()
+            if not loc:
+                loc = loc_line
+                for pat in [
+                    r"^[\d~,\(\)单双]+周\s+",
+                    r"周[一二三四五六日]\s*",
+                    r"第\d+节~第?\d+节\s*",
+                    r"第\d+~\d+节\s*",
+                ]:
+                    loc = re.sub(pat, "", loc, count=1)
+                loc = loc.strip()
+            location = loc if loc else loc_line
+        elif i < len(loc_lines):
+            loc_line = loc_lines[i]
+            loc = loc_line.replace(tl, "").strip()
+            if not loc:
+                loc = loc_line
+                for pat in [
+                    r"^[\d~,\(\)单双]+周\s+",
+                    r"周[一二三四五六日]\s*",
+                    r"第\d+节~第?\d+节\s*",
+                    r"第\d+~\d+节\s*",
+                ]:
+                    loc = re.sub(pat, "", loc, count=1)
+                loc = loc.strip()
+            location = loc if loc else loc_line
+        elif loc_lines:
+            location = loc_lines[-1]
+
+        schedules.append({
+            "weeks": weeks,
+            "weekday": weekday,
+            "start_unit": start_unit,
+            "end_unit": end_unit,
+            "location": location,
+        })
+
+    return schedules
+
+
+def _week_in_range(week_text, target_week):
+    """判断 target_week 是否在 week_text 描述的周次范围内。"""
+    if not week_text or not str(target_week).isdigit():
+        return True
+
+    week_text = week_text.strip()
+    target = int(target_week)
+
+    # 纯数字周，如 "11周"
+    m = re.match(r"^(\d+)周$", week_text)
+    if m:
+        return int(m.group(1)) == target
+
+    # 范围周，如 "1~10周"
+    m = re.match(r"^(\d+)~(\d+)周$", week_text)
+    if m:
+        return int(m.group(1)) <= target <= int(m.group(2))
+
+    # 单双周，如 "1~15(单)周"
+    m = re.match(r"^(\d+)~(\d+)\((单|双)\)周$", week_text)
+    if m:
+        start, end, parity = int(m.group(1)), int(m.group(2)), m.group(3)
+        if not (start <= target <= end):
+            return False
+        is_odd = target % 2 == 1
+        return is_odd if parity == "单" else not is_odd
+
+    # 逗号分隔，如 "1,3,5,7周"
+    m = re.match(r"^([\d,]+)周$", week_text)
+    if m:
+        weeks = [int(w.strip()) for w in m.group(1).split(",") if w.strip().isdigit()]
+        return target in weeks
+
+    return True
+
+
+def _get_current_teaching_week(semester):
+    """根据学期 startDate 计算当前是第几周。"""
+    now = datetime.now(TZ_SHANGHAI).date()
+    start = datetime.strptime(semester["startDate"], "%Y-%m-%d").date()
+    week = (now - start).days // 7 + 1
+    return max(1, week)
+
+
+# ═══════════════════════════════════════════
 # 数据查询
 # ═══════════════════════════════════════════
 
-def get_courses(session):
-    """查询当前学期课表 → 返回 list[dict]
+def get_courses(session, filter_weekday=None, filter_week=None, semester_id=None, semesters=None):
+    """查询当前学期课表 → 返回扁平化 schedule 列表
 
-    每个 dict: {name, teacher, time, location, weeks}
+    每个 dict: {
+        course_name: 课程名,
+        class_name:  班级/教学班名,
+        teacher:     教师,
+        weeks:       周次范围,
+        weekday:     星期几,
+        start_unit:  开始节次,
+        end_unit:    结束节次,
+        location:    地点,
+    }
+    如果指定 filter_weekday / filter_week，只返回匹配该日期条件的 schedule。
     """
-    _, semester_id = _get_semester_info(session)
+    if semester_id is None or semesters is None:
+        semesters, semester_id = _get_semester_info(session)
     r = session.get(
         f"{JXGL_BASE}/student/for-std/course-table/get-data",
         params={"bizTypeId": 2, "semesterId": semester_id},
@@ -254,38 +411,96 @@ def get_courses(session):
     )
     r.raise_for_status()
     data = r.json()
+
+    # 自动计算当前教学周
+    current_sem = next((s for s in semesters if s["id"] == semester_id), None)
+    if filter_week is None and current_sem:
+        filter_week = _get_current_teaching_week(current_sem)
+
     results = []
+
+    # ── 1) 从 lessons 读取 ──
     for lesson in data.get("lessons", []):
-        # 教师列表
+        course_name = ""
+        if lesson.get("course"):
+            course_name = lesson["course"].get("nameZh", "")
+        class_name = lesson.get("nameZh", "") or lesson.get("name", "") or ""
+
         teachers = []
         for ta in lesson.get("teacherAssignmentList", []):
             if ta.get("role") == "MAJOR":
                 teachers.append(ta["person"]["nameZh"])
         teacher_str = "; ".join(teachers) if teachers else ""
-        # 时间地点 — 用 dateTimePlaceText（含地点不含教师）
+
         dt_text = lesson.get("scheduleText", {}).get("dateTimeText", {}).get("textZh", "")
         dtp_text = lesson.get("scheduleText", {}).get("dateTimePlaceText", {}).get("textZh", "")
-        # 提取地点: 从完整文本中去掉时间部分，取第一个地点
-        location = ""
-        if dt_text and dtp_text:
-            # dtp_text 可能是多行，每行格式: "1~12周 周四 ... 教学楼 教室"
-            first_line = dtp_text.split("\n")[0].strip()
-            # 去掉时间前缀
-            time_part = dt_text.split(";")[0].strip()
-            location = first_line.replace(time_part, "").strip()
-        # 从时间文本中提取周次
+        schedules = _parse_schedule_lines(dt_text, dtp_text)
+
+        for sch in schedules:
+            if filter_weekday and sch["weekday"] != filter_weekday:
+                continue
+            if filter_week and not _week_in_range(sch["weeks"], filter_week):
+                continue
+
+            results.append({
+                "course_name": course_name,
+                "class_name": class_name,
+                "teacher": teacher_str,
+                "weeks": sch["weeks"],
+                "weekday": sch["weekday"],
+                "start_unit": sch["start_unit"],
+                "end_unit": sch["end_unit"],
+                "location": sch["location"],
+            })
+
+    # ── 2) 从 studentTableVm.activities 补充 ──
+    for act in data.get("studentTableVm", {}).get("activities", []):
+        course_name = act.get("courseName") or act.get("courseNameZh") or act.get("nameZh", "")
+        class_name = act.get("className") or act.get("teachingClassName", "") or ""
+
+        teacher_str = ""
+        t_name = act.get("teacherName") or act.get("teacherNameZh", "")
+        if t_name:
+            teacher_str = t_name
+        else:
+            teachers = act.get("teacherNames", [])
+            if teachers:
+                teacher_str = "; ".join(str(t) for t in teachers)
+
         weeks = ""
-        wm = re.match(r"([\d~]+周)", dt_text)
-        if wm:
-            weeks = wm.group(1)
+        w_text = act.get("weeks") or act.get("weekIndexes", "")
+        if w_text:
+            weeks = str(w_text)
+
+        weekday_map = {1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六", 7: "周日"}
+        wd = act.get("weekday")
+        weekday = weekday_map.get(int(wd), f"周{wd}") if wd is not None else ""
+        start_unit = str(act["startUnit"]) if act.get("startUnit") is not None else ""
+        end_unit = str(act["endUnit"]) if act.get("endUnit") is not None else ""
+        location = act.get("room") or act.get("roomName") or act.get("place", "")
+
+        if filter_weekday and weekday != filter_weekday:
+            continue
+        if filter_week and not _week_in_range(weeks, filter_week):
+            continue
 
         results.append({
-            "name": lesson.get("nameZh", ""),
+            "course_name": course_name,
+            "class_name": class_name,
             "teacher": teacher_str,
-            "time": dt_text,
-            "location": location,
             "weeks": weeks,
+            "weekday": weekday,
+            "start_unit": start_unit,
+            "end_unit": end_unit,
+            "location": location,
         })
+
+    # 按星期几、节次排序
+    weekday_order = {"周一": 1, "周二": 2, "周三": 3, "周四": 4, "周五": 5, "周六": 6, "周日": 7}
+    results.sort(key=lambda x: (
+        weekday_order.get(x["weekday"], 99),
+        int(x["start_unit"]) if x["start_unit"] and x["start_unit"].isdigit() else 99,
+    ))
     return results
 
 
@@ -529,6 +744,8 @@ def main():
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("courses", help="查询课表")
+    sub.add_parser("courses-today", help="查询今天有哪些课")
+    sub.add_parser("courses-tomorrow", help="查询明天有哪些课")
     sub.add_parser("exams", help="查询考试安排")
     sub.add_parser("grades", help="查询成绩")
 
@@ -562,9 +779,75 @@ def main():
     s = get_session()
 
     if args.cmd == "courses":
-        courses = get_courses(s)
+        semesters, semester_id = _get_semester_info(s)
+        courses = get_courses(s, semester_id=semester_id, semesters=semesters)
+        if not courses:
+            print("未查询到课程")
+            return
+        # 按 (课程名, 班级名, 教师) 聚合，同一门课的不同 schedule 合并展示
+        from collections import OrderedDict
+        grouped = OrderedDict()
         for c in courses:
-            print(f"{c['name']}\t{c['teacher']}\t{c['time']}\t{c['location']}\t{c['weeks']}")
+            key = (c["course_name"], c["class_name"], c["teacher"])
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(c)
+
+        for i, ((course_name, class_name, teacher), schedules) in enumerate(grouped.items(), 1):
+            display_name = course_name if course_name else class_name
+            print(f"{i}. {display_name}")
+            if class_name and course_name:
+                print(f"   班级: {class_name}")
+            if teacher:
+                print(f"   教师: {teacher}")
+            for sch in schedules:
+                unit_str = f" 第{sch['start_unit']}~{sch['end_unit']}节" if sch.get("start_unit") else ""
+                print(f"   {sch['weeks']} {sch['weekday']}{unit_str}")
+                if sch.get("location"):
+                    print(f"      地点: {sch['location']}")
+            print()
+
+    elif args.cmd in ("courses-today", "courses-tomorrow"):
+        from datetime import date as _date
+        target_date = _date.today()
+        if args.cmd == "courses-tomorrow":
+            target_date += timedelta(days=1)
+
+        weekday_map = {0: "周一", 1: "周二", 2: "周三", 3: "周四", 4: "周五", 5: "周六", 6: "周日"}
+        target_weekday = weekday_map[target_date.weekday()]
+
+        semesters, semester_id = _get_semester_info(s)
+        current_sem = next((sem for sem in semesters if sem["id"] == semester_id), None)
+        target_week = None
+        if current_sem:
+            target_week = _get_current_teaching_week(current_sem)
+            # 如果是查明天，但明天的周次和今天相同（同一周），不需要调整
+            # 如果跨周（周日查周一），需要重新计算
+            if args.cmd == "courses-tomorrow" and target_date.weekday() == 0 and _date.today().weekday() == 6:
+                target_week = _get_current_teaching_week(current_sem) + 1
+
+        courses = get_courses(s, filter_weekday=target_weekday, filter_week=target_week, semester_id=semester_id, semesters=semesters)
+
+        label = "今天" if args.cmd == "courses-today" else "明天"
+        week_info = f" 第{target_week}周" if target_week else ""
+        print(f"📅 {label}（{target_date.strftime('%Y-%m-%d')} {target_weekday}{week_info}）的课程：\n")
+
+        if not courses:
+            print("🎉 没有课程！")
+            return
+
+        for i, c in enumerate(courses, 1):
+            display_name = c["course_name"] if c["course_name"] else c["class_name"]
+            print(f"{i}. {display_name}")
+            if c["class_name"] and c["course_name"]:
+                print(f"   班级: {c['class_name']}")
+            if c["teacher"]:
+                print(f"   教师: {c['teacher']}")
+            unit_str = f" 第{c['start_unit']}~{c['end_unit']}节" if c.get("start_unit") else ""
+            print(f"   时间: {c['weekday']}{unit_str}")
+            if c.get("location"):
+                print(f"   地点: {c['location']}")
+            print()
 
     elif args.cmd == "exams":
         exams = get_exams(s)
