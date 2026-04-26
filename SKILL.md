@@ -104,7 +104,7 @@ python scripts/dlut_jxgl.py exams-ics        # 导出考试为 ICS
 python scripts/dlut_jxgl.py exams-sync       # 考试同步到日历
 ```
 
-凭证从 `config.json` 自动读取（jxgl_username + jxgl_password）。通过 CAS SSO 登录 `jxgl.dlut.edu.cn`，首次使用运行 `python scripts/setup.py` 配置。
+凭证从 `config.json` 自动读取（dlut_username + dlut_password）。通过 CAS SSO 登录 `jxgl.dlut.edu.cn`，首次使用运行 `python scripts/setup.py` 配置。
 
 ---
 
@@ -122,7 +122,7 @@ python scripts/dlut_mail.py send --to someone@dlut.edu.cn --subject "标题" --b
 python scripts/dlut_mail.py send --to someone@dlut.edu.cn --subject "标题" --body "正文" --html  # HTML格式
 ```
 
-凭证从 `config.json` 自动读取（dlut_username + dlut_password）。
+凭证从 `config.json` 自动读取（mail_username + mail_password）。
 
 ### 7. 大工新闻
 

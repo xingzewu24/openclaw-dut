@@ -9,6 +9,6 @@
   "dlut_username": "YOUR_DLUT_USERNAME",
   "dlut_password": "YOUR_DLUT_PASSWORD",
 
-  "jxgl_username": "YOUR_JXGL_USERNAME",
-  "jxgl_password": "YOUR_JXGL_PASSWORD"
+  "mail_username": "YOUR_MAIL_USERNAME",
+  "mail_password": "YOUR_MAIL_PASSWORD"
 }

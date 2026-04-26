@@ -8,10 +8,7 @@
 import os
 import sys
 
-# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
-for _s in (sys.stdout, sys.stderr):
-    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
-        _s.reconfigure(encoding="utf-8", errors="replace")
+import _console  # noqa: F401  forces UTF-8 stdout on Windows
 import json
 import getpass
 import platform
@@ -206,8 +203,8 @@ def main():
 
     yn = input(f"  是否配置大工邮箱？{DIM}(Y/n){RESET}: ").strip().lower()
     if yn != "n":
-        username = prompt("DUT 用户名", config.get("dlut_username", ""))
-        config["dlut_username"] = username
+        username = prompt("邮箱用户名", config.get("mail_username", ""))
+        config["mail_username"] = username
 
         if username:
             # 邮箱域名选择
@@ -225,8 +222,8 @@ def main():
             mail_domain = config["dlut_mail_domain"]
             print(f"  {GREEN}已选择 @{mail_domain}{RESET}\n")
 
-            password = prompt("DUT 密码", config.get("dlut_password", ""), secret=True)
-            config["dlut_password"] = password
+            password = prompt("邮箱密码", config.get("mail_password", ""), secret=True)
+            config["mail_password"] = password
 
             if password:
                 print()
@@ -235,12 +232,12 @@ def main():
                         break
                     if attempt < 5:
                         print(f"  {YELLOW}第 {attempt} 次失败，还剩 {5 - attempt} 次机会{RESET}")
-                        password = prompt("DUT 密码", "", secret=True, required=True)
-                        config["dlut_password"] = password
+                        password = prompt("邮箱密码", "", secret=True, required=True)
+                        config["mail_password"] = password
                     else:
                         print(f"  {RED}已连续 5 次登录失败，跳过邮箱配置{RESET}")
         else:
-            config["dlut_password"] = ""
+            config["mail_password"] = ""
     else:
         print(f"  {DIM}已跳过大工邮箱配置{RESET}")
 
@@ -253,16 +250,14 @@ def main():
 
     yn = input(f"  是否配置教务系统？{DIM}(Y/n){RESET}: ").strip().lower()
     if yn != "n":
-        # 用户名：默认复用 dlut_username
-        default_user = config.get("jxgl_username", "") or config.get("dlut_username", "")
-        username = prompt("教务系统用户名", default_user)
+        username = prompt("DUT 主账号用户名（学号）", config.get("dlut_username", ""))
         if username:
-            config["jxgl_username"] = username
+            config["dlut_username"] = username
 
-            # 密码：默认复用 dlut_password
-            default_pwd = config.get("jxgl_password", "") or config.get("dlut_password", "")
-            password = prompt("教务系统密码", default_pwd, secret=True)
-            config["jxgl_password"] = password
+            # 密码：默认复用 mail_password（用户常复用同一密码）
+            default_pwd = config.get("dlut_password", "") or config.get("mail_password", "")
+            password = prompt("DUT 主账号密码", default_pwd, secret=True)
+            config["dlut_password"] = password
 
             if password:
                 print()
@@ -274,12 +269,12 @@ def main():
                     print(f"  {RED}❌ 教务系统{msg}{RESET}")
                     if attempt < 5:
                         print(f"  {YELLOW}第 {attempt} 次失败，还剩 {5 - attempt} 次机会{RESET}")
-                        password = prompt("教务系统密码", "", secret=True, required=True)
-                        config["jxgl_password"] = password
+                        password = prompt("DUT 主账号密码", "", secret=True, required=True)
+                        config["dlut_password"] = password
                     else:
                         print(f"  {RED}已连续 5 次登录失败，跳过教务系统配置{RESET}")
         else:
-            config["jxgl_password"] = ""
+            config["dlut_password"] = ""
     else:
         print(f"  {DIM}已跳过教务系统配置{RESET}")
 
@@ -290,10 +285,10 @@ def main():
     configured = []
     if config.get("chaoxing_phone") and config["chaoxing_phone"] != "YOUR_PHONE_NUMBER":
         configured.append("超星学习通")
-    if config.get("dlut_username"):
+    if config.get("mail_username"):
         configured.append("邮箱")
-        if config.get("jxgl_username"):
-            configured.append("教务系统")
+    if config.get("dlut_username"):
+        configured.append("教务系统")
     print(f"  已配置服务: {GREEN}{', '.join(configured) if configured else '无'}{RESET}")
     print(f"  配置文件路径: {CONFIG_PATH}")
     print()

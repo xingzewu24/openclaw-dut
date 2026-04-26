@@ -9,10 +9,7 @@ import os
 import re
 import sys
 
-# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
-for _s in (sys.stdout, sys.stderr):
-    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
-        _s.reconfigure(encoding="utf-8", errors="replace")
+import _console  # noqa: F401  forces UTF-8 stdout on Windows
 import json
 import platform
 import requests
@@ -186,11 +183,11 @@ def get_session():
         return _session
 
     config = load_config()
-    username = config.get("jxgl_username", "")
-    password = config.get("jxgl_password", "")
+    username = config.get("dlut_username", "")
+    password = config.get("dlut_password", "")
 
     if not username or not password:
-        print("ERROR: 未配置教务系统账号。请运行 python3 scripts/setup.py 或在 config.json 中填写 jxgl_username / jxgl_password")
+        print("ERROR: 未配置 DUT 主账号。请运行 python3 scripts/setup.py 或在 config.json 中填写 dlut_username / dlut_password")
         sys.exit(1)
 
     s = cas_login(username, password)
@@ -760,10 +757,10 @@ def main():
 
     if args.cmd == "login":
         config = load_config()
-        username = config.get("jxgl_username", "")
-        password = config.get("jxgl_password", "")
+        username = config.get("dlut_username", "")
+        password = config.get("dlut_password", "")
         if not username or not password:
-            print("ERROR: 未配置教务系统账号")
+            print("ERROR: 未配置 DUT 主账号")
             sys.exit(1)
         ok, msg = test_cas_login(username, password)
         if ok:

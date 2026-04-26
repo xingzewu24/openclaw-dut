@@ -72,7 +72,7 @@
 | 考试同步到日历 | `python scripts/dlut_jxgl.py exams-sync` |
 | 测试教务登录 | `python scripts/dlut_jxgl.py login` |
 
-凭证从 `config.json` 自动读取（jxgl_username + jxgl_password）。通过 CAS SSO 登录，首次使用运行 `python scripts/setup.py` 配置。
+凭证从 `config.json` 自动读取（dlut_username + dlut_password）。通过 CAS SSO 登录，首次使用运行 `python scripts/setup.py` 配置。
 
 ### 校园信息
 
@@ -99,7 +99,7 @@
 | 发邮件(纯文本) | `python scripts/dlut_mail.py send --to xxx@dlut.edu.cn --subject "标题" --body "正文"` |
 | 发邮件(HTML) | `python scripts/dlut_mail.py send --to xxx@dlut.edu.cn --subject "标题" --body "正文" --html` |
 
-凭证从 `config.json` 自动读取（dlut_username + dlut_password）。
+凭证从 `config.json` 自动读取（mail_username + mail_password）。
 
 ### PPT 生成
 

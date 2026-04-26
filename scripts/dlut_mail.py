@@ -18,10 +18,7 @@ import json
 import os
 import sys
 
-# Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
-for _s in (sys.stdout, sys.stderr):
-    if hasattr(_s, "reconfigure") and (_s.encoding or "").lower() != "utf-8":
-        _s.reconfigure(encoding="utf-8", errors="replace")
+import _console  # noqa: F401  forces UTF-8 stdout on Windows
 import argparse
 from datetime import datetime
 
@@ -278,8 +275,8 @@ def main():
 
     # 加载凭证
     config = _load_config()
-    username = args.username or config.get("dlut_username", "")
-    password = args.password or config.get("dlut_password", "")
+    username = args.username or config.get("mail_username", "")
+    password = args.password or config.get("mail_password", "")
 
     if not username or not password:
         print("❌ 错误: 请提供用户名和密码 (命令行参数或 config.json)")

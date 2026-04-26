@@ -4,6 +4,8 @@
 
 **大连理工大学全能 AI 校园助手**
 
+
+
 *基于 [OpenClaw](https://openclaw.ai/) 的大工校园 Skill 包，也可接入 [HermesAgent](https://hermes-agent.nousresearch.com/)，轻度需求可用新手友好的 [QClaw](https://qclaw.qq.com/)*
 
 *同时支持 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://openai.com/codex/)*
@@ -131,8 +133,8 @@ python3 scripts/setup.py    # Windows: python scripts/setup.py
 
 ```json
 {
-  "dlut_username": "你的邮箱前缀",
-  "dlut_password": "你的密码",
+  "mail_username": "你的邮箱前缀",
+  "mail_password": "你的密码",
   "dlut_mail_domain": "你的邮箱后缀"
 }
 ```
@@ -157,8 +159,8 @@ python3 scripts/setup.py    # Windows: python scripts/setup.py
 
 ```json
 {
-  "jxgl_username": "你的学号",
-  "jxgl_password": "你的密码"
+  "dlut_username": "你的学号",
+  "dlut_password": "你的密码"
 }
 ```
 
