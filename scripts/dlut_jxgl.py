@@ -333,6 +333,12 @@ def get_exams(session):
             "campus": campus.strip(),
             "seat": "",
         })
+    # 过滤：考试结束一天后不再显示
+    now = datetime.now(TZ_SHANGHAI)
+    results = [
+        ex for ex in results
+        if ex["datetime"] is None or ex["datetime"] + timedelta(days=1) > now
+    ]
     return results
 
 

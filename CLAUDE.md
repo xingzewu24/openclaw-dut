@@ -36,6 +36,14 @@
 | 查课程文件 | `python scripts/chaoxing_api.py files <course_id> [搜索词]` |
 | 使用其他账号 | `python scripts/chaoxing_api.py --profile <name> <subcommand>` |
 
+`ddls` / `ddls-all` 输出会按截止时间分三类：
+
+- **⏳ 未截止待交**：还没到 ddl 的作业（含 🆕 未开始的，显示开始时间）
+- **❌ 已截止未交**：deadline 已过且没交，显示过期时长
+- **❓ 无截止时间**：超星没暴露任何时间信息
+
+结构化字段：每条 ddl 含 `due_at`（ISO 8601 截止时间）、`start_at`（开始时间）、`status_text`（超星原始状态）、`due_local`（人类可读文案）。脚本通过 `_fetch_assignment_dates` 跟进作业 task URL，从 `/work/view`、`/work/preview`、`/work/dowork` 三种页面抽取时间。
+
 ### 日历同步
 
 | 用户意图 | 命令 |

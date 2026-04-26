@@ -455,6 +455,102 @@ def _parse_date(text):
     return None
 
 
+def _parse_short_date(short, ref=None):
+    """超星 view/preview 页时间格式仅 'MM-DD HH:MM'，根据当前时间反推年份。
+
+    短时间格式假定属于本学期（≈ 当前 ±6 个月）。如以当前年份解析后落在
+    远未来（>150 天后），则视为去年；落在远过去（>200 天前）视为明年。
+    """
+    if not short:
+        return None
+    short = short.strip()
+    m = re.match(r'^(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$', short)
+    if not m:
+        return None
+    month, day, hour, minute = map(int, m.groups())
+    ref_dt = ref or datetime.now(TZ_SHANGHAI)
+    for year in (ref_dt.year, ref_dt.year - 1, ref_dt.year + 1):
+        try:
+            dt = datetime(year, month, day, hour, minute, tzinfo=TZ_SHANGHAI)
+        except ValueError:
+            continue
+        delta_days = (dt - ref_dt).total_seconds() / 86400
+        if -200 <= delta_days <= 150:
+            return dt
+    try:
+        return datetime(ref_dt.year, month, day, hour, minute, tzinfo=TZ_SHANGHAI)
+    except ValueError:
+        return None
+
+
+def _fetch_assignment_dates(session, task_url):
+    """访问作业 task URL，从 view/preview/dowork 页面抽取起止时间。
+
+    Returns:
+        dict: {
+            "start_at": ISO 字符串或 None,
+            "end_at":   ISO 字符串或 None,
+            "status":   "view" | "preview" | "dowork" | "dowork_not_started" | "dowork_blocked" | "unknown",
+        }
+    """
+    result = {"start_at": None, "end_at": None, "status": "unknown"}
+    if not task_url:
+        return result
+    try:
+        r = session.get(task_url, allow_redirects=True, timeout=15)
+    except Exception:
+        return result
+
+    final_url = r.url or ""
+    text = r.text or ""
+
+    # 优先匹配标准的 "作答时间:<em>start</em>至<em>end</em>" 格式
+    # view/preview/dowork(进行中) 都可能出现
+    m_range = re.search(
+        r'作答时间[:：][^<]*<em>([^<]+)</em>[^<]*<em>([^<]+)</em>',
+        text,
+    )
+    if m_range:
+        start_dt = _parse_short_date(m_range.group(1))
+        end_dt = _parse_short_date(m_range.group(2), ref=start_dt)
+        if start_dt:
+            result["start_at"] = start_dt.isoformat()
+        if end_dt:
+            result["end_at"] = end_dt.isoformat()
+        if "/work/view" in final_url:
+            result["status"] = "view"
+        elif "/work/preview" in final_url:
+            result["status"] = "preview"
+        else:
+            result["status"] = "dowork"
+        return result
+
+    # 未开始情况：dowork 页面的 "开始时间：YYYY-MM-DD HH:MM:SS"
+    if "/work/dowork" in final_url:
+        m_start = re.search(
+            r'开始时间[:：]\s*(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)',
+            text,
+        )
+        m_end = re.search(
+            r'结束时间[:：]\s*(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)',
+            text,
+        )
+        if m_start:
+            dt = _parse_date(m_start.group(1))
+            if dt:
+                result["start_at"] = dt.isoformat()
+        if m_end:
+            dt = _parse_date(m_end.group(1))
+            if dt:
+                result["end_at"] = dt.isoformat()
+        if m_start or "未开始" in text:
+            result["status"] = "dowork_not_started"
+        else:
+            result["status"] = "dowork_blocked"
+
+    return result
+
+
 # ═══════════════════════════════════════════
 # 用户
 # ═══════════════════════════════════════════
@@ -761,7 +857,7 @@ def download_course_files(course_id, course_name, save_dir, extensions=None, pro
 # 作业
 # ═══════════════════════════════════════════
 
-def list_assignments(course_id, profile_name=None):
+def list_assignments(course_id, profile_name=None, fetch_dates=False):
     s = _get_session(profile_name)
     meta = _get_course_meta(course_id)
 
@@ -803,7 +899,7 @@ def list_assignments(course_id, profile_name=None):
                 name_el = li.select_one("p.overHidden2")
                 name = name_el.get_text(strip=True) if name_el else ""
 
-            # workId: 从 data URL 中提取
+            # task_url + workId: 从 data 属性提取
             data_url = li.get("data", "")
             work_id = _re_first(data_url, r"workId=(\d+)")
             if not work_id:
@@ -815,7 +911,7 @@ def list_assignments(course_id, profile_name=None):
             status_el = li.select_one("p.status")
             status_text = status_el.get_text(strip=True) if status_el else ""
 
-            # 截止时间（超星不在列表页显示，需进入详情页）
+            # 列表页 HTML 不含截止时间，留空，由 _scan_all_ddls 进入详情页再补
             due_at = None
 
             # 分值
@@ -829,6 +925,8 @@ def list_assignments(course_id, profile_name=None):
                 "id": int(work_id),
                 "name": name,
                 "due_at": due_at,
+                "task_url": data_url,
+                "status_text": status_text,
                 "points_possible": points_possible,
                 "submission_types": ["online_upload"],
                 "description": "",
@@ -843,20 +941,26 @@ def list_assignments(course_id, profile_name=None):
                 },
             })
     else:
-        # Regex fallback
+        # Regex fallback: 同步抓取 data + aria-label + workId
         for m in re.finditer(
-            r'aria-label="([^"]*?)\s*;\s*([^"]*?)"[^>]*data="[^"]*workId=(\d+)',
+            r'data="([^"]+workId=(\d+)[^"]*)"[^>]*aria-label="([^"]+)"',
             r2.text,
         ):
-            name = m.group(1).strip()
-            status_text = m.group(2).strip()
-            work_id = m.group(3)
+            data_url = m.group(1)
+            work_id = m.group(2)
+            aria = m.group(3)
+            parts = [p.strip() for p in aria.split(";")]
+            name = parts[0] if parts else ""
+            status_text = parts[1] if len(parts) > 1 else ""
+
             submitted = any(k in status_text for k in ("已完成", "已交"))
-            graded = "已批" in status_text
+            graded = "已批" in status_text or "待批阅" in status_text
             assignments.append({
                 "id": int(work_id),
                 "name": name,
                 "due_at": None,
+                "task_url": data_url,
+                "status_text": status_text,
                 "points_possible": None,
                 "submission_types": ["online_upload"],
                 "description": "",
@@ -866,6 +970,20 @@ def list_assignments(course_id, profile_name=None):
                     "grade": None,
                 },
             })
+
+    # 可选：为未提交项填充 due_at（额外 HTTP 开销，按需开启）
+    if fetch_dates:
+        for a in assignments:
+            if a["due_at"]:
+                continue
+            if a["submission"]["workflow_state"] in ("submitted", "graded"):
+                continue
+            if not a.get("task_url"):
+                continue
+            info = _fetch_assignment_dates(s, a["task_url"])
+            a["due_at"] = info.get("end_at")
+            a["start_at"] = info.get("start_at")
+            time.sleep(0.2)
 
     return assignments
 
@@ -920,6 +1038,21 @@ def get_assignment(course_id, assignment_id, profile_name=None):
         if points_el:
             pts = _re_first(points_el.get_text(), r'(\d+(?:\.\d+)?)')
             result["points_possible"] = float(pts) if pts else None
+
+    # api/work 通常 403，回退：从作业列表抓 task_url 再访问 view/preview/dowork
+    if not result["due_at"] or not result["name"]:
+        try:
+            for a in list_assignments(course_id, profile_name=profile_name):
+                if a["id"] == int(assignment_id):
+                    if not result["name"] and a.get("name"):
+                        result["name"] = a["name"]
+                    if a.get("task_url"):
+                        info = _fetch_assignment_dates(s, a["task_url"])
+                        if info.get("end_at"):
+                            result["due_at"] = info["end_at"]
+                    break
+        except Exception:
+            pass
 
     return result
 
@@ -1018,9 +1151,60 @@ def get_full_discussion(course_id, topic_id, profile_name=None):
 # ═══════════════════════════════════════════
 
 def get_all_upcoming_ddls(profile_name=None):
+    """所有未交作业（含已截止和未截止），按截止时间排序"""
     ddls = _scan_all_ddls(profile_name=profile_name)
+    return [d for d in ddls if not d["submitted"]]
+
+
+def get_categorized_unsubmitted_ddls(profile_name=None):
+    """未交作业按截止时间分类返回
+
+    Returns:
+        dict: {
+            "missing": [...],        # 已截止但未交
+            "upcoming": [...],       # 未截止待交（含未开始）
+            "no_deadline": [...],    # 既无截止也无开始时间
+        }
+    """
+    ddls = _scan_all_ddls(profile_name=profile_name, include_past=True)
     now = datetime.now(TZ_SHANGHAI)
-    return [d for d in ddls if d["due_dt"] > now and not d["submitted"]]
+
+    missing = []     # 已截止未交
+    upcoming = []    # 未截止待交（含未开始）
+    no_deadline = [] # 真无时间信息
+
+    for d in ddls:
+        if d["submitted"]:
+            continue
+        # 1. 有截止时间
+        if d.get("due_at"):
+            if d["due_dt"] < now:
+                missing.append(d)
+            else:
+                upcoming.append(d)
+        # 2. 未开始：有 start_at 但无 end_at → 视为待办（upcoming）
+        elif d.get("start_at"):
+            try:
+                start_dt = datetime.fromisoformat(d["start_at"])
+            except Exception:
+                start_dt = None
+            if start_dt and start_dt > now:
+                d["due_dt"] = start_dt
+            upcoming.append(d)
+        # 3. 真无时间
+        else:
+            no_deadline.append(d)
+
+    # 已截止：最近过期的排前面（按 due_dt 降序，最近过期的优先）
+    missing.sort(key=lambda x: x["due_dt"], reverse=True)
+    # 未截止：最快到期的排前面（按 due_dt 升序）
+    upcoming.sort(key=lambda x: x["due_dt"])
+
+    return {
+        "missing": missing,
+        "upcoming": upcoming,
+        "no_deadline": no_deadline,
+    }
 
 
 def get_all_ddls_via_planner(start_date=None, include_past=False, profile_name=None):
@@ -1047,14 +1231,23 @@ def _scan_all_ddls(start_date=None, include_past=False, profile_name=None):
 
     for c in courses:
         try:
-            assignments = list_assignments(c["id"], profile_name=profile_name)
+            assignments = list_assignments(
+                c["id"],
+                profile_name=profile_name,
+                fetch_dates=True,
+            )
         except Exception:
             continue
 
         for a in assignments:
             due_str = a.get("due_at")
+            sub = a.get("submission", {})
+            submitted = sub.get("workflow_state") in ("submitted", "graded")
+            status_text = a.get("status_text", "")
+            start_at = a.get("start_at")
 
-            # 超星作业可能无截止时间，设一个远期占位
+            # 解析为 datetime 对象
+            due_dt = None
             if due_str:
                 try:
                     due_dt = _parse_date(due_str)
@@ -1064,22 +1257,37 @@ def _scan_all_ddls(start_date=None, include_past=False, profile_name=None):
                         ).astimezone(TZ_SHANGHAI)
                 except Exception:
                     due_dt = None
-            else:
-                due_dt = None
 
+            # 真正无截止时间的作业，用占位符以便排序，但保留 due_at=None 标记
+            has_deadline = due_dt is not None
             if due_dt is None:
                 due_dt = datetime(now.year, 12, 31, 23, 59, tzinfo=TZ_SHANGHAI)
             elif not due_dt.tzinfo:
                 due_dt = due_dt.replace(tzinfo=TZ_SHANGHAI)
 
-            if not include_past and due_str and due_dt < start_dt:
+            if not include_past and has_deadline and due_dt < start_dt:
                 continue
 
-            sub = a.get("submission", {})
-            submitted = sub.get("workflow_state") in ("submitted", "graded")
             graded = sub.get("workflow_state") == "graded"
 
             meta = _course_cache.get(str(c.get("id", "")), {})
+
+            # 显示文案
+            if has_deadline:
+                due_local = due_dt.strftime("%Y-%m-%d %H:%M")
+            elif start_at:
+                try:
+                    start_dt_obj = datetime.fromisoformat(start_at)
+                    if start_dt_obj > now:
+                        due_local = f"未开始（{start_dt_obj.strftime('%Y-%m-%d %H:%M')} 起）"
+                    else:
+                        due_local = f"已开始（{start_dt_obj.strftime('%Y-%m-%d %H:%M')}）无截止"
+                except Exception:
+                    due_local = "未开始"
+            elif "未开始" in status_text:
+                due_local = "未开始"
+            else:
+                due_local = "无截止时间"
 
             ddls.append({
                 "course": c.get("name", ""),
@@ -1088,13 +1296,13 @@ def _scan_all_ddls(start_date=None, include_past=False, profile_name=None):
                 "assignment_id": a["id"],
                 "due_at": due_str,
                 "due_dt": due_dt,
-                "due_local": (
-                    due_dt.strftime("%Y-%m-%d %H:%M") if due_str else "无截止时间"
-                ),
+                "due_local": due_local,
+                "start_at": start_at,
+                "status_text": status_text,
                 "submitted": submitted,
                 "graded": graded,
                 "late": False,
-                "missing": not submitted and due_dt < now,
+                "missing": not submitted and has_deadline and due_dt < now,
                 "needs_grading": False,
                 "has_feedback": False,
                 "feedback": None,
@@ -1182,15 +1390,58 @@ if __name__ == "__main__":
             print(f"[{c['id']}] {c['name']}{suffix}{t_suffix}")
 
     elif cmd == "ddls":
-        upcoming = get_all_upcoming_ddls(profile_name=profile_name)
-        if not upcoming:
+        cats = get_categorized_unsubmitted_ddls(profile_name=profile_name)
+        missing = cats["missing"]
+        upcoming = cats["upcoming"]
+        no_deadline = cats["no_deadline"]
+        total = len(missing) + len(upcoming) + len(no_deadline)
+
+        if total == 0:
             print("🎉 没有未交的作业！")
         else:
-            print(f"📋 {len(upcoming)} 个未交作业：")
-            for d in upcoming:
-                hours_left = (d["due_dt"] - datetime.now(TZ_SHANGHAI)).total_seconds() / 3600
-                urgency = "🔴" if hours_left < 24 else "🟡" if hours_left < 72 else "🟢"
-                print(f"  {urgency} [{d['course']}] {d['assignment']} → {d['due_local']} ({hours_left:.0f}h)")
+            print(f"📋 共 {total} 个未交作业\n")
+            now = datetime.now(TZ_SHANGHAI)
+
+            # 1) 未截止待交
+            if upcoming:
+                print(f"⏳ 未截止待交 ({len(upcoming)}个)：")
+                for d in upcoming:
+                    if not d.get("due_at"):
+                        # 未开始（仅有 start_at）
+                        print(f"  🆕 [{d['course']}] {d['assignment']}")
+                        print(f"      {d['due_local']}")
+                        continue
+                    hours_left = (d["due_dt"] - now).total_seconds() / 3600
+                    if hours_left < 24:
+                        urgency, label = "🔴", f"{hours_left:.0f}h"
+                    elif hours_left < 72:
+                        urgency, label = "🟡", f"{hours_left:.0f}h"
+                    elif hours_left < 24 * 7:
+                        urgency, label = "🟢", f"{hours_left/24:.1f}d"
+                    else:
+                        urgency, label = "🔵", f"{hours_left/24:.0f}d"
+                    print(f"  {urgency} [{d['course']}] {d['assignment']}")
+                    print(f"      截止 {d['due_local']}  (剩 {label})")
+                print()
+
+            # 2) 已截止未交
+            if missing:
+                print(f"❌ 已截止未交 ({len(missing)}个)：")
+                for d in missing:
+                    hours_past = (now - d["due_dt"]).total_seconds() / 3600
+                    if hours_past < 24:
+                        label = f"过期 {hours_past:.0f}h"
+                    else:
+                        label = f"过期 {hours_past/24:.0f}d"
+                    print(f"  💀 [{d['course']}] {d['assignment']}")
+                    print(f"      截止 {d['due_local']}  ({label})")
+                print()
+
+            # 3) 无截止时间
+            if no_deadline:
+                print(f"❓ 无截止时间 ({len(no_deadline)}个)：")
+                for d in no_deadline:
+                    print(f"  ⚪ [{d['course']}] {d['assignment']}")
 
     elif cmd == "ddls-all":
         report = get_semester_ddl_summary(profile_name=profile_name)
@@ -1198,13 +1449,62 @@ if __name__ == "__main__":
         print(
             f"📊 本学期DDL全景："
             f"共{s['total']}个 | 已交{s['submitted']} | 已批{s['graded']} | "
-            f"迟交{s['late']} | 未交{s['missing']}"
+            f"迟交{s['late']} | 已截止未交{s['missing']}"
         )
-        print(f"\n⏰ 待交 ({s['upcoming_count']}个)：")
-        for d in report["upcoming"]:
-            hours_left = (d["due_dt"] - datetime.now(TZ_SHANGHAI)).total_seconds() / 3600
-            urgency = "🔴" if hours_left < 24 else "🟡" if hours_left < 72 else "🟢"
-            print(f"  {urgency} [{d['course']}] {d['assignment']} → {d['due_local']} ({hours_left:.0f}h)")
+
+        now = datetime.now(TZ_SHANGHAI)
+        unsubmitted = [d for d in report["ddls"] if not d["submitted"]]
+        upcoming = []
+        missing = []
+        no_deadline = []
+        for d in unsubmitted:
+            if d.get("due_at"):
+                if d["due_dt"] > now:
+                    upcoming.append(d)
+                else:
+                    missing.append(d)
+            elif d.get("start_at"):
+                try:
+                    sd = datetime.fromisoformat(d["start_at"])
+                    if sd > now:
+                        d["due_dt"] = sd
+                except Exception:
+                    pass
+                upcoming.append(d)
+            else:
+                no_deadline.append(d)
+
+        upcoming.sort(key=lambda x: x["due_dt"])
+        missing.sort(key=lambda x: x["due_dt"], reverse=True)
+
+        if upcoming:
+            print(f"\n⏳ 未截止待交 ({len(upcoming)}个)：")
+            for d in upcoming:
+                if not d.get("due_at"):
+                    print(f"  🆕 [{d['course']}] {d['assignment']} → {d['due_local']}")
+                    continue
+                hours_left = (d["due_dt"] - now).total_seconds() / 3600
+                if hours_left < 24:
+                    urgency, label = "🔴", f"{hours_left:.0f}h"
+                elif hours_left < 72:
+                    urgency, label = "🟡", f"{hours_left:.0f}h"
+                elif hours_left < 24 * 7:
+                    urgency, label = "🟢", f"{hours_left/24:.1f}d"
+                else:
+                    urgency, label = "🔵", f"{hours_left/24:.0f}d"
+                print(f"  {urgency} [{d['course']}] {d['assignment']} → {d['due_local']} (剩 {label})")
+
+        if missing:
+            print(f"\n❌ 已截止未交 ({len(missing)}个)：")
+            for d in missing:
+                hours_past = (now - d["due_dt"]).total_seconds() / 3600
+                label = f"过期 {hours_past:.0f}h" if hours_past < 24 else f"过期 {hours_past/24:.0f}d"
+                print(f"  💀 [{d['course']}] {d['assignment']} → {d['due_local']} ({label})")
+
+        if no_deadline:
+            print(f"\n❓ 无截止时间 ({len(no_deadline)}个)：")
+            for d in no_deadline:
+                print(f"  ⚪ [{d['course']}] {d['assignment']}")
 
     elif cmd == "grades":
         for c in list_courses(profile_name=profile_name):

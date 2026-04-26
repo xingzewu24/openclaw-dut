@@ -42,9 +42,16 @@ description: |
 **触发**: "我有什么作业"、"DDL"、"截止"、"未交作业"
 
 ```bash
-python scripts/chaoxing_api.py ddls                      # 查未交作业
+python scripts/chaoxing_api.py ddls                      # 查未交作业（按截止时间分三类）
 python scripts/chaoxing_api.py ddls-all                  # 学期全景报告
 ```
+
+未交作业按时间分类：
+- **⏳ 未截止待交**：含 🆕 未开始（显示开始时间）和待交（显示剩余时间）
+- **❌ 已截止未交**：标注过期时长
+- **❓ 无截止时间**：超星没暴露任何时间信息
+
+每条作业返回 `due_at`（ISO 截止时间）、`start_at`（开始时间）、`status_text`（超星原始状态）。
 
 ### 2. DDL → 日历
 
