@@ -2,8 +2,13 @@
 """
 大连理工大学校历与校园信息工具
 功能：查询校历关键日期、当前教学周、校园概况
+
+学期起止、总周数等数据优先从教务系统 jxgl.dlut.edu.cn 动态获取。
+教务系统不可用时回退到硬编码 fallback 数据。
+放假日期为硬编码，需按学年更新。
 """
 
+import os
 import sys
 
 # Windows stdout 默认 gbk，subprocess 捕获时 emoji 会 UnicodeEncodeError
@@ -12,27 +17,24 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
 from datetime import datetime, date
 
+
 # ============================================================
-# 硬编码数据 - 2025-2026 学年春季学期 (2026年春)
+# 硬编码数据
 # ============================================================
 
-SEMESTER_INFO = {
-    "semester": "2025-2026学年 春季学期",
-    "start_date": "2026-02-23",
-    "end_date": "2026-07-05",
-    "total_weeks": 19,
-    "key_dates": [
-        {"date": "2026-02-23", "event": "春季学期开学"},
-        {"date": "2026-02-23", "event": "第一周上课"},
-        {"date": "2026-03-08", "event": "选课结束 (第二周周日)"},
-        {"date": "2026-04-04", "event": "清明节放假 (4/4-4/6)"},
-        {"date": "2026-05-01", "event": "劳动节放假 (5/1-5/5)"},
-        {"date": "2026-05-31", "event": "端午节放假 (5/31-6/2)"},
-        {"date": "2026-06-01", "event": "期中考试周 (约第14-15周)"},
-        {"date": "2026-06-22", "event": "期末考试开始 (第18周起)"},
-        {"date": "2026-07-05", "event": "暑假开始"},
-        {"date": "2026-07-05", "event": "本科生毕业典礼 (约6月底-7月初)"},
-    ],
+# 放假及关键事件（无法从教务系统获取，需按学年更新）
+HOLIDAYS = [
+    {"date": "2026-04-04", "event": "清明节放假 (4/4-4/6)"},
+    {"date": "2026-05-01", "event": "劳动节放假 (5/1-5/5)"},
+    {"date": "2026-06-19", "event": "端午节放假 (6/19-6/21)"},
+    {"date": "2026-06-22", "event": "期末考试开始 (约第16-17周)"},
+]
+
+# Fallback 学期数据（教务系统不可用时使用，需按学年更新）
+FALLBACK_SEMESTER = {
+    "name": "2025-2026学年 春季学期",
+    "start_date": "2026-03-02",
+    "end_date": "2026-06-28",
 }
 
 CAMPUS_INFO = {
@@ -54,37 +56,97 @@ CAMPUS_INFO = {
 }
 
 
+def _get_semester_from_jxgl():
+    """从教务系统 jxgl.dlut.edu.cn 获取当前学期信息"""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        from dlut_jxgl import get_session, _get_semester_info
+
+        s = get_session()
+        semesters, current_id = _get_semester_info(s)
+        current = next((s for s in semesters if s["id"] == current_id), None)
+        if not current:
+            return None
+
+        start = date.fromisoformat(current["startDate"])
+        end = date.fromisoformat(current["endDate"])
+        total_weeks = (end - start).days // 7 + 1
+
+        return {
+            "name": current["nameZh"],
+            "start_date": current["startDate"],
+            "end_date": current["endDate"],
+            "total_weeks": total_weeks,
+        }
+    except SystemExit:
+        # get_session() 在未配置账号时会 sys.exit(1)
+        return None
+    except Exception:
+        return None
+
+
 def get_academic_calendar():
-    """获取当前学期校历关键日期"""
+    """获取当前学期校历（学期数据优先来自教务系统）"""
+    jxgl = _get_semester_from_jxgl()
+
+    if jxgl:
+        return {
+            "semester": jxgl["name"],
+            "start_date": jxgl["start_date"],
+            "end_date": jxgl["end_date"],
+            "total_weeks": jxgl["total_weeks"],
+            "key_dates": HOLIDAYS,
+            "source": "学期数据来自教务系统 jxgl.dlut.edu.cn，放假日期为硬编码",
+        }
+
+    # fallback
+    fb = FALLBACK_SEMESTER
+    start = date.fromisoformat(fb["start_date"])
+    end = date.fromisoformat(fb["end_date"])
+    total_weeks = (end - start).days // 7 + 1
     return {
-        "semester": SEMESTER_INFO["semester"],
-        "start_date": SEMESTER_INFO["start_date"],
-        "end_date": SEMESTER_INFO["end_date"],
-        "total_weeks": SEMESTER_INFO["total_weeks"],
-        "key_dates": SEMESTER_INFO["key_dates"],
-        "source": "硬编码数据 (如有变动请以学校官方通知为准)",
+        "semester": fb["name"],
+        "start_date": fb["start_date"],
+        "end_date": fb["end_date"],
+        "total_weeks": total_weeks,
+        "key_dates": HOLIDAYS,
+        "source": "硬编码 fallback 数据 (教务系统不可用)",
     }
 
 
 def get_current_week():
     """计算当前是第几教学周"""
+    jxgl = _get_semester_from_jxgl()
+
+    if jxgl:
+        name = jxgl["name"]
+        start = date.fromisoformat(jxgl["start_date"])
+        end = date.fromisoformat(jxgl["end_date"])
+        total_weeks = jxgl["total_weeks"]
+    else:
+        fb = FALLBACK_SEMESTER
+        name = fb["name"]
+        start = date.fromisoformat(fb["start_date"])
+        end = date.fromisoformat(fb["end_date"])
+        total_weeks = (end - start).days // 7 + 1
+
     today = date.today()
-    start = date.fromisoformat(SEMESTER_INFO["start_date"])
-    end = date.fromisoformat(SEMESTER_INFO["end_date"])
 
     if today < start:
         delta = (start - today).days
         return {
             "week": 0,
             "day": today.strftime("%Y-%m-%d %A"),
-            "semester": SEMESTER_INFO["semester"],
+            "semester": name,
             "status": f"尚未开学，距开学还有 {delta} 天",
         }
     elif today > end:
         return {
-            "week": SEMESTER_INFO["total_weeks"],
+            "week": total_weeks,
             "day": today.strftime("%Y-%m-%d %A"),
-            "semester": SEMESTER_INFO["semester"],
+            "semester": name,
             "status": "已放假",
         }
     else:
@@ -96,7 +158,7 @@ def get_current_week():
         }.get(today.strftime("%A"), today.strftime("%A"))
 
         upcoming = []
-        for item in SEMESTER_INFO["key_dates"]:
+        for item in HOLIDAYS:
             event_date = date.fromisoformat(item["date"])
             diff = (event_date - today).days
             if -1 <= diff <= 14:
@@ -105,7 +167,7 @@ def get_current_week():
         return {
             "week": week,
             "day": f"{today.strftime('%Y-%m-%d')} {weekday_cn}",
-            "semester": SEMESTER_INFO["semester"],
+            "semester": name,
             "status": f"第 {week} 教学周 {weekday_cn}",
             "upcoming": upcoming if upcoming else None,
         }

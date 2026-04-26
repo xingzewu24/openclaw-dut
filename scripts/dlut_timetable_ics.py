@@ -27,40 +27,73 @@ from chaoxing_api import (
 
 DEFAULT_OUTPUT = os.path.expanduser("~/Downloads/dlut_timetable.ics")
 
-# ── DUT 校历数据 (2025-2026 学年) ──
-# 来源: teach.dlut.edu.cn "历年校历" (校内外VPN限定)
-# 如有更新，修改此处即可
-DUT_SEMESTERS = {
-    "2025-2026-1": {  # 2025 秋季学期
-        "name": "2025年秋季学期",
-        "start": date(2025, 9, 1),     # 第1周周一
-        "end": date(2026, 1, 18),      # 第20周日
-        "teaching_weeks": 18,           # 教学周 1-18
-        "exam_weeks": 2,               # 考试周 19-20
-        "holidays": [
-            {"name": "国庆节", "start": date(2025, 10, 1), "end": date(2025, 10, 7)},
-            {"name": "元旦", "start": date(2026, 1, 1), "end": date(2026, 1, 1)},
-        ],
-    },
-    "2025-2026-2": {  # 2026 春季学期
-        "name": "2026年春季学期",
-        "start": date(2026, 3, 2),     # 第1周周一
-        "end": date(2026, 7, 12),      # 第20周日
-        "teaching_weeks": 18,
-        "exam_weeks": 2,
-        "holidays": [
-            {"name": "清明节", "start": date(2026, 4, 4), "end": date(2026, 4, 6)},
-            {"name": "劳动节", "start": date(2026, 5, 1), "end": date(2026, 5, 5)},
-            {"name": "端午节", "start": date(2026, 5, 30), "end": date(2026, 5, 31)},
-        ],
+# ── 假期配置（无法从教务系统获取，需按学年更新） ──
+SEMESTER_HOLIDAYS = {
+    "2025-2026-1": [
+        {"name": "国庆节", "start": date(2025, 10, 1), "end": date(2025, 10, 7)},
+        {"name": "元旦", "start": date(2026, 1, 1), "end": date(2026, 1, 1)},
+    ],
+    "2025-2026-2": [
+        {"name": "清明节", "start": date(2026, 4, 4), "end": date(2026, 4, 6)},
+        {"name": "劳动节", "start": date(2026, 5, 1), "end": date(2026, 5, 5)},
+        {"name": "端午节", "start": date(2026, 6, 19), "end": date(2026, 6, 21)},
+    ],
+}
+
+# Fallback 学期数据（教务系统不可用时使用，需按学年更新）
+_FALLBACK_SEMESTERS = {
+    "2025-2026-2": {
+        "key": "2025-2026-2",
+        "name": "2025-2026学年第二学期",
+        "start": date(2026, 3, 2),
+        "end": date(2026, 6, 28),
+        "teaching_weeks": 17,
+        "exam_weeks": 0,
     },
 }
 
 
+def _get_semesters_from_jxgl():
+    """从教务系统 jxgl.dlut.edu.cn 获取所有学期信息"""
+    import os
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        from dlut_jxgl import get_session, _get_semester_info
+
+        s = get_session()
+        semesters, current_id = _get_semester_info(s)
+        result = {}
+        for sem in semesters:
+            start = date.fromisoformat(sem["startDate"])
+            end = date.fromisoformat(sem["endDate"])
+            teaching_weeks = (end - start).days // 7 + 1
+            result[sem["code"]] = {
+                "key": sem["code"],
+                "name": sem["nameZh"],
+                "start": start,
+                "end": end,
+                "teaching_weeks": teaching_weeks,
+                "exam_weeks": 0,
+            }
+        return result
+    except (SystemExit, Exception):
+        return {}
+
+
 def get_current_semester():
-    """返回当前日期对应的学期 key，以及学期信息"""
+    """返回当前日期对应的学期 key，以及学期信息（优先从教务系统获取）"""
     today = date.today()
-    for key, sem in DUT_SEMESTERS.items():
+
+    # 优先从教务系统获取
+    jxgl_sems = _get_semesters_from_jxgl()
+    for key, sem in jxgl_sems.items():
+        if sem["start"] <= today <= sem["end"]:
+            return key, sem
+
+    # fallback
+    for key, sem in _FALLBACK_SEMESTERS.items():
         if sem["start"] <= today <= sem["end"]:
             return key, sem
     return None, None
@@ -68,7 +101,7 @@ def get_current_semester():
 
 def get_teaching_week(target_date=None):
     """
-    计算指定日期是第几教学周
+    计算指定日期是第几教学周（优先从教务系统获取）
 
     Args:
         target_date: 目标日期，默认今天
@@ -78,7 +111,10 @@ def get_teaching_week(target_date=None):
     """
     if target_date is None:
         target_date = date.today()
-    for key, sem in DUT_SEMESTERS.items():
+
+    # 优先从教务系统获取
+    jxgl_sems = _get_semesters_from_jxgl()
+    for key, sem in jxgl_sems.items():
         if sem["start"] <= target_date <= sem["end"]:
             days_since_start = (target_date - sem["start"]).days
             week_num = days_since_start // 7 + 1
@@ -90,6 +126,25 @@ def get_teaching_week(target_date=None):
                 "is_teaching_week": 1 <= week_num <= total_teaching,
                 "semester_name": sem["name"],
                 "total_weeks": total_teaching + sem["exam_weeks"],
+                "teaching_weeks": total_teaching,
+                "exam_weeks": sem["exam_weeks"],
+            }
+
+    # fallback
+    for key, sem in _FALLBACK_SEMESTERS.items():
+        if sem["start"] <= target_date <= sem["end"]:
+            days_since_start = (target_date - sem["start"]).days
+            week_num = days_since_start // 7 + 1
+            total_teaching = sem["teaching_weeks"]
+            return {
+                "semester": key,
+                "week": week_num,
+                "is_exam_week": week_num > total_teaching,
+                "is_teaching_week": 1 <= week_num <= total_teaching,
+                "semester_name": sem["name"],
+                "total_weeks": total_teaching + sem["exam_weeks"],
+                "teaching_weeks": total_teaching,
+                "exam_weeks": sem["exam_weeks"],
             }
     return None
 
@@ -518,11 +573,16 @@ def main():
             if info:
                 kind = "考试周" if info["is_exam_week"] else "教学周"
                 print(f"📅 {info['semester_name']} 第 {info['week']} 周（{kind}）")
-                print(f"   学期总周数: {info['total_weeks']}（教学 {info['total_weeks'] - 2} + 考试 2）")
+                tw = info['teaching_weeks']
+                ew = info['exam_weeks']
+                detail = f"（教学 {tw} + 考试 {ew}）" if ew else f"（共 {tw} 周）"
+                print(f"   学期总周数: {info['total_weeks']}{detail}")
             else:
                 print("⚠️ 当前不在任何学期范围内")
                 print("已配置的学期:")
-                for key, sem in DUT_SEMESTERS.items():
+                jxgl_sems = _get_semesters_from_jxgl()
+                sems = jxgl_sems if jxgl_sems else _FALLBACK_SEMESTERS
+                for key, sem in sems.items():
                     print(f"  {sem['name']}: {sem['start']} → {sem['end']}")
         else:
             print(f"❌ 未知命令: {cmd}")
