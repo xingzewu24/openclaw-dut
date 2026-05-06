@@ -15,8 +15,8 @@ import _console  # noqa: F401  forces UTF-8 stdout on Windows
 def get_all_tools() -> list[dict]:
     """列出所有可用工具"""
     tools = [
-        {"name": "统一身份认证 (CAS)", "url": "https://portal.dlut.edu.cn",
-         "cmd": "", "desc": "DUT 统一身份认证登录门户"},
+        {"name": "统一身份认证门户", "url": "https://portal.dlut.edu.cn/tp/",
+         "cmd": "portal", "desc": "DUT 统一身份认证门户，集成各类校内应用"},
         {"name": "超星学习通", "url": "https://dut.fanya.chaoxing.com",
          "cmd": "", "desc": "课程管理、作业、课件、成绩"},
         {"name": "大工邮箱", "url": "https://mail.dlut.edu.cn",
@@ -73,6 +73,26 @@ LaTeX 论文写作指南
 """.strip()
 
 
+def get_portal_info() -> str:
+    """门户系统使用指引"""
+    return """
+DUT 统一身份认证门户
+
+  地址: https://portal.dlut.edu.cn/tp/
+
+  命令行工具:
+    测试登录:   python scripts/dlut_portal.py login
+    打开应用:   python scripts/dlut_portal.py open <应用ID>
+    获取页面:   python scripts/dlut_portal.py get <路径>
+
+  常用应用 ID:
+    sems-tp-nup_29827717
+
+  配置:
+    凭证从 config.json 读取（dlut_username + dlut_password）
+""".strip()
+
+
 def get_thesis_info() -> str:
     """学位论文模板使用指引"""
     return """
@@ -120,6 +140,7 @@ def main():
     tool_map = {
         "latex": get_latex_info,
         "thesis": get_thesis_info,
+        "portal": get_portal_info,
     }
 
     if len(sys.argv) < 2:
@@ -129,6 +150,7 @@ def main():
         print("  list    列出所有可用工具")
         print("  latex   LaTeX 编辑器指引")
         print("  thesis  学位论文模板指引")
+        print("  portal  统一身份认证门户指引")
         sys.exit(0)
 
     cmd = sys.argv[1].lower()

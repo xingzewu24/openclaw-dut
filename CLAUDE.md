@@ -1,6 +1,6 @@
 # 大连理工大学全能校园助手 (openclaw-dlut)
 
-本 Skill 为 Claude Code 提供大工校园助手能力，覆盖超星学习通作业管理、教务系统、校园生活、学术工具等功能。
+本 Skill 为 Claude Code 提供大工校园助手能力，覆盖超星学习通作业管理、教务系统、校园网自助服务、校园生活、学术工具等功能。
 
 ## 配置
 
@@ -140,6 +140,41 @@
 | npm换源 | `python scripts/dlut_mirror.py npm` |
 | 列出镜像 | `python scripts/dlut_mirror.py list` |
 
+### 门户系统
+
+| 用户意图 | 命令 |
+|---------|------|
+| 测试门户登录 | `python scripts/dlut_portal.py login` |
+| 查询用户信息 | `python scripts/dlut_portal.py me` |
+| 打开门户应用 | `python scripts/dlut_portal.py open <应用ID>` |
+| 获取页面内容 | `python scripts/dlut_portal.py get <路径>` |
+| 探测 API 接口 | `python scripts/dlut_portal_probe.py` |
+
+凭证从 `config.json` 自动读取（dlut_username + dlut_password），复用教务系统同一套 CAS SSO。
+
+已封装接口:
+- `me`: 查询用户信息（姓名、学号、学院、邮箱、手机）
+
+### 校园网自助服务 (tulip)
+
+| 用户意图 | 命令 |
+|---------|------|
+| 测试登录 | `python scripts/dlut_tulip.py login` |
+| 查询用户信息 | `python scripts/dlut_tulip.py me` |
+| 查询网费余额 | `python scripts/dlut_tulip.py balance` |
+| 查询安全信息 | `python scripts/dlut_tulip.py security` |
+| 信息汇总 | `python scripts/dlut_tulip.py summary` |
+
+凭证从 `config.json` 自动读取（dlut_username + dlut_password）。
+
+已封装接口:
+- `me`: 查询用户信息（姓名、学号、学院、邮箱、手机、证件号）
+- `balance`: 查询网费余额、已用流量、总支出
+- `security`: 查询安全中心用户信息
+- `summary`: 汇总展示上述关键信息
+
+**实现说明**: tulip 系统基于 Ruijie RG-Relax/SAM+ 平台，使用 JSON-RPC 2.0 协议，通过 Selenium 浏览器自动化调用页面内 `Request.request` 接口获取数据（`finger` 头部算法未公开，暂无法使用纯 HTTP 请求）。
+
 ### 在线工具 & 校园照片
 
 | 用户意图 | 命令 |
@@ -147,6 +182,7 @@
 | 工具列表 | `python scripts/dlut_tools.py list` |
 | LaTeX指引 | `python scripts/dlut_tools.py latex` |
 | 论文模板指引 | `python scripts/dlut_tools.py thesis` |
+| 门户指引 | `python scripts/dlut_tools.py portal` |
 | 校园照片 | `python scripts/dlut_visual.py albums` |
 | 搜索照片 | `python scripts/dlut_visual.py search "关键词"` |
 
@@ -182,7 +218,7 @@
 ## 依赖
 
 ```
-pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome
+pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome selenium
 ```
 
 Windows 用户用 `pip` 代替 `pip3`。
