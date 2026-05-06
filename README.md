@@ -17,7 +17,7 @@
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)]()
 
-覆盖作业追踪、教务系统、校园生活、学术工具等 **17 项功能**，专为大工学子打造。后期可以试试加入老师的：）
+覆盖作业追踪、教务系统、校园网自助服务、校园生活、学术工具等 **19 项功能**，专为大工学子打造。后期可以试试加入老师的：）
 
 </div>
 
@@ -52,15 +52,17 @@
 | 11 | 🗓️**教学周 / 校历** | "今天第几周？什么时候放假？"        |
 | 12 | 📰**教务通知 / 新闻** | "有什么教务通知？" / "教研教改通知" |
 | 13 | 🏙️**校区概况**      | "介绍一下大工各校区"                |
+| 14 | 🌐**校园网自助服务** | "查网费余额" / "用了多少流量"      |
 
 ### 🔧 工具
 
 | #  | 功能                 | 你只需要说                  |
 | -- | -------------------- | --------------------------- |
-| 14 | 🪞**镜像换源** | "帮我把 pip 换成国内源"     |
-| 15 | 🧰**在线工具** | "有什么在线 LaTeX 工具？"   |
-| 16 | 📝**手写 PDF** | "帮我把这段文字生成手写PDF" |
-| 17 | 📂**课件提取** | "帮我提取这个PPT/PDF的内容" |
+| 15 | 🪞**镜像换源** | "帮我把 pip 换成国内源"     |
+| 16 | 🧰**在线工具** | "有什么在线 LaTeX 工具？"   |
+| 17 | 📝**手写 PDF** | "帮我把这段文字生成手写PDF" |
+| 18 | 📂**课件提取** | "帮我提取这个PPT/PDF的内容" |
+| 19 | 🏢**门户系统** | "打开校园门户" / "查门户信息" |
 
 ---
 
@@ -74,7 +76,7 @@ git clone https://github.com/xingzewu24/openclaw-dut.git \
   ~/.openclaw/workspace/skills/openclaw-dut
 
 # 安装 Python 依赖
-pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
+pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar selenium
 ```
 
 ### 2️⃣ 配置
@@ -149,9 +151,13 @@ python3 scripts/setup.py    # Windows: python scripts/setup.py
 
 ---
 
-### 🎓 教务系统
+### 🎓 教务系统 / 门户系统 / 校园网自助服务
 
-用于查询教务系统课表、考试安排、期末成绩。通过 CAS SSO 登录 `jxgl.dlut.edu.cn`。
+这三套系统共用同一套 DUT 统一身份认证（CAS SSO）凭证：
+
+- **教务系统** (`jxgl.dlut.edu.cn`)：课表、考试、成绩
+- **门户系统** (`portal.dlut.edu.cn`)：统一身份认证门户、应用集成
+- **校园网自助服务** (`tulip.dlut.edu.cn`)：网费余额、流量查询
 
 **Step 1：** 确认你的 DUT 统一身份认证账号
 
@@ -164,7 +170,10 @@ python3 scripts/setup.py    # Windows: python scripts/setup.py
 }
 ```
 
-**验证是否成功：** 运行 `python3 scripts/dlut_jxgl.py login` 显示「登录成功」即配置成功 ✅
+**验证是否成功：**
+- 教务：`python3 scripts/dlut_jxgl.py login` ✅
+- 门户：`python3 scripts/dlut_portal.py login` ✅
+- tulip：`python3 scripts/dlut_tulip.py login` ✅
 
 ---
 
@@ -226,6 +235,7 @@ python3 scripts/setup.py    # Windows: python scripts/setup.py
 | "今天第几周？什么时候放假？" | 教学周 + 校历      |
 | "有没有新邮件？"             | 查看大工邮箱未读   |
 | "有什么教务通知？"           | 拉取最新教务处公告 |
+| "查网费余额"                 | 校园网自助服务余额 + 已用流量 |
 
 ---
 

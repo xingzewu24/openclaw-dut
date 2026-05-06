@@ -18,7 +18,9 @@ description: |
   (11) 查教务系统课表、考试安排、期末成绩
   (12) 手写PDF生成
   (13) 课件内容提取
-  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 本周课表, 下周课表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取
+  (14) 门户系统登录、用户信息查询
+  (15) 校园网自助服务（网费余额、流量查询）
+  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 本周课表, 下周课表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取, 门户, portal, 网费, 余额, 流量, 校园网, 一卡通, tulip
 ---
 
 # 大连理工大学全能校园助手
@@ -218,7 +220,37 @@ python scripts/dlut_mirror.py npm       # npm 换源
 python scripts/dlut_mirror.py list      # 列出所有可用镜像
 ```
 
-### 14. 在线工具
+### 14. 门户系统
+
+**触发**: "门户"、"portal"、"校园门户"
+
+```bash
+python scripts/dlut_portal.py login     # 测试 CAS 登录
+python scripts/dlut_portal.py me        # 查询用户信息
+python scripts/dlut_portal.py open <应用ID>  # 在浏览器中打开应用
+python scripts/dlut_portal.py get <路径>     # 获取页面/API内容
+python scripts/dlut_portal_probe.py     # 探测可用 API 接口
+```
+
+凭证从 `config.json` 自动读取（dlut_username + dlut_password），复用教务系统同一套 CAS SSO。
+
+### 15. 校园网自助服务 (tulip)
+
+**触发**: "网费"、"余额"、"流量"、"校园网"
+
+```bash
+python scripts/dlut_tulip.py login      # 测试登录
+python scripts/dlut_tulip.py me         # 查询用户信息
+python scripts/dlut_tulip.py balance    # 查询余额和流量
+python scripts/dlut_tulip.py security   # 查询安全中心信息
+python scripts/dlut_tulip.py summary    # 汇总展示
+```
+
+凭证从 `config.json` 自动读取（dlut_username + dlut_password）。
+
+**实现说明**: tulip 基于 Ruijie RG-Relax/SAM+ 平台，通过 Selenium 浏览器自动化调用 JSON-RPC 接口获取数据。
+
+### 16. 在线工具
 
 **触发**: "LaTeX"、"在线工具"、"论文模板"
 
@@ -226,9 +258,10 @@ python scripts/dlut_mirror.py list      # 列出所有可用镜像
 python scripts/dlut_tools.py list       # 列出所有可用工具
 python scripts/dlut_tools.py latex      # LaTeX 编辑器指引
 python scripts/dlut_tools.py thesis     # 学位论文模板指引
+python scripts/dlut_tools.py portal     # 门户系统指引
 ```
 
-### 15. 校园照片
+### 17. 校园照片
 
 **触发**: "校园照片"、"校园风景"
 
@@ -291,8 +324,8 @@ python scripts/grading_assistant.py grade <course_id> <assignment_id> <user_id> 
 ## 依赖
 
 ```bash
-pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
-# Windows: pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar
+pip3 install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar selenium
+# Windows: pip install requests beautifulsoup4 python-pptx pdfplumber handright Pillow reportlab pycryptodome chinesecalendar selenium
 ```
 
 ## 注意事项
