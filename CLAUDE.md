@@ -68,11 +68,25 @@
 | 查明天有哪些课 | `python scripts/dlut_jxgl.py courses-tomorrow` |
 | 查考试安排 | `python scripts/dlut_jxgl.py exams` |
 | 查期末成绩 | `python scripts/dlut_jxgl.py grades` |
+| 全校开课查询 | `python scripts/dlut_jxgl.py search [选项]` |
 | 导出考试为 ICS | `python scripts/dlut_jxgl.py exams-ics` |
 | 考试同步到日历 | `python scripts/dlut_jxgl.py exams-sync` |
 | 测试教务登录 | `python scripts/dlut_jxgl.py login` |
 
 凭证从 `config.json` 自动读取（dlut_username + dlut_password）。通过 CAS SSO 登录，首次使用运行 `python scripts/setup.py` 配置。
+
+`search` 支持组合筛选：
+- `-n/--name` 课程名称（模糊）
+- `-t/--teacher` 教师名称（模糊）
+- `-c/--code` 课程代码（模糊）
+- `-r/--room` 教室位置（模糊）
+- `--class-name` 教学班名称（模糊）
+- `-w/--weekday` 上课星期（`周一`/`1`/`一` 均可）
+- `-s/--semester` 学期ID（默认当前学期）
+- `-p/--page` 页码（默认1）
+- `--size` 每页条数（默认20）
+
+示例：`python scripts/dlut_jxgl.py search -n 数据结构 -t 张三 -w 周一`
 
 ### 校园信息
 

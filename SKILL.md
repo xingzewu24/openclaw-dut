@@ -16,11 +16,15 @@ description: |
   (9) 生成大工PPT
   (10) 提交作业、助教批改
   (11) 查教务系统课表、考试安排、期末成绩
-  (12) 手写PDF生成
+  (12) 全校开课查询（按课程名/教师/教室/班级/星期筛选）
+  (13) 手写PDF生成
+  (14) 课件内容提取
+  (15) 门户系统登录、用户信息查询
+  (16) 校园网自助服务（网费余额、流量查询）
   (13) 课件内容提取
   (14) 门户系统登录、用户信息查询
   (15) 校园网自助服务（网费余额、流量查询）
-  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 本周课表, 下周课表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取, 门户, portal, 网费, 余额, 流量, 校园网, 一卡通, tulip
+  触发词: 超星, 学习通, 课程, 作业, DDL, 截止, 成绩, 课件, PPT, 总结, 复习, 提交作业, 讨论区, 批改, 图书馆, 教室, 空教室, 教学周, 第几周, 校历, 放假, 邮箱, 邮件, 镜像, pip, conda, 换源, 新闻, 教务, 通知, 教研, 教改, PPT模板, 手写, 课表, 课程表, 本周课表, 下周课表, 考试, 考试安排, 期末成绩, 绩点, GPA, 选课, 全校开课, 开课查询, 开课, 教室位置, LaTeX, 论文模板, 校区, 手写PDF, 信纸, 课件提取, 门户, portal, 网费, 余额, 流量, 校园网, 一卡通, tulip
 ---
 
 # 大连理工大学全能校园助手
@@ -102,6 +106,7 @@ python scripts/dlut_jxgl.py courses-today    # 查今天有哪些课
 python scripts/dlut_jxgl.py courses-tomorrow # 查明天有哪些课
 python scripts/dlut_jxgl.py exams            # 查考试安排
 python scripts/dlut_jxgl.py grades           # 查所有学期成绩
+python scripts/dlut_jxgl.py search -n 数据结构 -t 张三 -w 周一  # 全校开课查询
 python scripts/dlut_jxgl.py exams-ics        # 导出考试为 ICS
 python scripts/dlut_jxgl.py exams-sync       # 考试同步到日历
 ```

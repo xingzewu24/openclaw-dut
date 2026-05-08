@@ -582,6 +582,114 @@ def get_grades(session):
 
 
 # ═══════════════════════════════════════════
+# 全校开课查询
+# ═══════════════════════════════════════════
+
+def search_all_courses(session, semester_id=None, course_name="", teacher_name="", course_code="",
+                       room="", class_keyword="", weekday="", page_size=20, page=1):
+    """全校开课查询 → 返回 (课程列表, 总条数)
+
+    接口: GET /student/for-std/lesson-search/semester/{semesterId}/search/{studentId}
+    服务端参数:
+      - courseNameZhLike: 课程名称模糊搜索
+      - teacherNameLike:  教师名称模糊搜索
+      - codeLike:         课程代码模糊搜索
+      - roomNameLike:     教室位置模糊搜索
+      - nameZhLike:       教学班名模糊搜索
+      - queryPage__:      分页, 格式 "{currentPage},{rowsPerPage}"
+    客户端过滤:
+      - weekday:  上课星期 (周一~周日)
+
+    每个 dict: {
+        name:       课程名,
+        code:       课程代码,
+        credit:     学分,
+        teacher:    教师,
+        class_name: 教学班名,
+        course_type: 课程类型,
+        compulsory:  选课性质(必修/选修),
+        campus:      校区,
+        department:  开课学院,
+        schedules:  上课时间地点列表 [{weeks, weekday, start_unit, end_unit, location}],
+    }
+    """
+    if semester_id is None:
+        _, semester_id = _get_semester_info(session)
+
+    student_id = _get_student_id(session)
+    url = f"{JXGL_BASE}/student/for-std/lesson-search/semester/{semester_id}/search/{student_id}"
+
+    params = {
+        "courseNameZhLike": course_name,
+        "teacherNameLike": teacher_name,
+        "codeLike": course_code,
+        "roomNameLike": room,
+        "nameZhLike": class_keyword,
+        "queryPage__": f"{page},{page_size}",
+    }
+
+    r = session.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+
+    lessons = data.get("data", [])
+    page_info = data.get("_page_", {})
+    total = page_info.get("totalRows", len(lessons))
+
+    results = []
+    for lesson in lessons:
+        course = lesson.get("course") or {}
+
+        # 教师
+        teachers = []
+        for ta in lesson.get("teacherAssignmentList", []):
+            person = ta.get("person", {})
+            if person:
+                teachers.append(person.get("nameZh", ""))
+        teacher_str = "; ".join(t for t in teachers if t) if teachers else ""
+
+        # 上课时间地点（复用已有解析器）
+        schedule_text = lesson.get("scheduleText", {})
+        dt_text = schedule_text.get("dateTimeText", {}).get("textZh", "")
+        dtp_text = schedule_text.get("dateTimePlaceText", {}).get("textZh", "")
+        schedules = _parse_schedule_lines(dt_text, dtp_text)
+
+        # 客户端过滤：上课星期
+        if weekday:
+            # 标准化输入（支持 "周一" / "1" / "一"）
+            weekday_map = {"1": "周一", "2": "周二", "3": "周三", "4": "周四",
+                           "5": "周五", "6": "周六", "7": "周日",
+                           "一": "周一", "二": "周二", "三": "周三", "四": "周四",
+                           "五": "周五", "六": "周六", "日": "周日"}
+            target = weekday_map.get(weekday, weekday)
+            # 检查是否有匹配的 schedule
+            has_match = any(sch.get("weekday") == target for sch in schedules)
+            if not has_match:
+                continue
+
+        # 校区 & 开课学院
+        campus = lesson.get("campus", {})
+        campus_name = campus.get("nameZh", "") if isinstance(campus, dict) else ""
+        dept = lesson.get("openDepartment", {})
+        dept_name = dept.get("nameZh", "") if isinstance(dept, dict) else ""
+
+        results.append({
+            "name": course.get("nameZh", ""),
+            "code": course.get("code", ""),
+            "credit": course.get("credits", ""),
+            "teacher": teacher_str,
+            "class_name": lesson.get("nameZh", ""),
+            "course_type": lesson.get("courseType", {}).get("nameZh", ""),
+            "compulsory": lesson.get("compulsorysStr", ""),
+            "campus": campus_name,
+            "department": dept_name,
+            "schedules": schedules,
+        })
+
+    return results, total
+
+
+# ═══════════════════════════════════════════
 # 考试日历同步
 # ═══════════════════════════════════════════
 
@@ -748,6 +856,17 @@ def main():
 
     sub.add_parser("exams-sync", help="考试同步到日历")
 
+    p_search = sub.add_parser("search", help="全校开课查询")
+    p_search.add_argument("--name", "-n", help="课程名称（模糊搜索）")
+    p_search.add_argument("--teacher", "-t", help="教师名称（模糊搜索）")
+    p_search.add_argument("--code", "-c", help="课程代码（模糊搜索）")
+    p_search.add_argument("--room", "-r", help="教室位置（模糊搜索）")
+    p_search.add_argument("--class-name", help="教学班名称（模糊搜索）")
+    p_search.add_argument("--weekday", "-w", help="上课星期（周一~周日，支持 1/一/周一）")
+    p_search.add_argument("--semester", "-s", type=int, help="学期ID（默认当前学期）")
+    p_search.add_argument("--page", "-p", type=int, default=1, help="页码（默认1）")
+    p_search.add_argument("--size", type=int, default=20, help="每页条数（默认20）")
+
     sub.add_parser("login", help="测试 CAS 登录")
 
     args = parser.parse_args()
@@ -905,6 +1024,50 @@ def main():
     elif args.cmd == "exams-sync":
         exams = get_exams(s)
         sync_exams_to_calendar(exams)
+
+    elif args.cmd == "search":
+        results, total = search_all_courses(
+            s,
+            semester_id=args.semester,
+            course_name=args.name or "",
+            teacher_name=args.teacher or "",
+            course_code=args.code or "",
+            room=args.room or "",
+            class_keyword=args.class_name or "",
+            weekday=args.weekday or "",
+            page_size=args.size,
+            page=args.page,
+        )
+        if not results:
+            print("未查询到课程")
+            return
+
+        print(f"全校开课查询结果（共 {total} 条，第 {args.page} 页，每页 {args.size} 条）：\n")
+        for i, c in enumerate(results, 1):
+            idx = (args.page - 1) * args.size + i
+            print(f"{idx}. {c['name']}")
+            if c.get("code"):
+                print(f"   代码: {c['code']}")
+            if c.get("credit"):
+                print(f"   学分: {c['credit']}")
+            if c.get("teacher"):
+                print(f"   教师: {c['teacher']}")
+            if c.get("class_name"):
+                print(f"   班级: {c['class_name']}")
+            # 课程类型 + 选课性质
+            extra = []
+            if c.get("course_type"):
+                extra.append(c["course_type"])
+            if c.get("compulsory"):
+                extra.append(c["compulsory"])
+            if extra:
+                print(f"   类型: {' / '.join(extra)}")
+            for sch in c.get("schedules", []):
+                unit_str = f" 第{sch['start_unit']}~{sch['end_unit']}节" if sch.get("start_unit") else ""
+                print(f"   时间: {sch['weeks']} {sch['weekday']}{unit_str}")
+                if sch.get("location"):
+                    print(f"   地点: {sch['location']}")
+            print()
 
 
 if __name__ == "__main__":
